@@ -1,0 +1,12 @@
+{
+  "_comment": "Owner-supplied photo: photo_id null, no source_photo_url. Must be accepted.",
+  "date": "2026-10-20",
+  "published_at": "2026-10-20T04:30:51+08:00",
+  "timezone": "Asia/Shanghai",
+  "photo_id": null,
+  "image_url": "https://raw.githubusercontent.com/example/relay/0123456789abcdef0123456789abcdef01234567/desk.jpg",
+  "sha256": "3f786850e387550fdab836ed7e6dc881de23001b7c7b9a1c8f2f2a1b9d0f2c77",
+  "width": 6000,
+  "height": 4000,
+  "size_bytes": 4212345
+}

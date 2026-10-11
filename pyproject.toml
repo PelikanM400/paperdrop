@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paperdrop"
+version = "0.1.0"
+description = "A small daily wallpaper client for macOS and Linux (Xfce): fetch one image from a public source, verify it, cache it, apply it."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "PelikanM400" }]
+keywords = ["wallpaper", "desktop", "macos", "xfce", "rss", "manifest"]
+classifiers = [
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Topic :: Desktop Environment",
+]
+dependencies = ["Pillow>=10"]
+
+[project.urls]
+Homepage = "https://github.com/PelikanM400/paperdrop"
+
+[project.scripts]
+paperdrop = "paperdrop.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]

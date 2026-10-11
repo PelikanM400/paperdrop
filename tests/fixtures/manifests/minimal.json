@@ -1,0 +1,5 @@
+{
+  "_comment": "Only the two required fields. Everything else is optional and the client degrades gracefully.",
+  "image_url": "https://example.test/only-required.jpg",
+  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

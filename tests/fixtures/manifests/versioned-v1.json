@@ -1,0 +1,10 @@
+{
+  "schema": "paperdrop-manifest",
+  "schema_version": 1,
+  "date": "2030-01-02",
+  "image_url": "https://example.test/a.jpg",
+  "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "width": 3840,
+  "height": 2160,
+  "size_bytes": 1000
+}

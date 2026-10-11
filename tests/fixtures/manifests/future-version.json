@@ -1,0 +1,6 @@
+{
+  "schema": "paperdrop-manifest",
+  "schema_version": 2,
+  "image_url": "https://example.test/a.jpg",
+  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

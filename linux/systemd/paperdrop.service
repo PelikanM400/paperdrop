@@ -1,0 +1,18 @@
+# Reference copy of the unit PaperDrop writes.
+#
+# `paperdrop install` generates this file into
+#   ~/.config/systemd/user/paperdrop.service
+# with the real interpreter path, the PYTHONPATH of this checkout (if you are
+# running from source) and your config file path filled in. It is kept here so
+# you can read exactly what will be installed before running the installer.
+#
+# Do not edit this copy: edit the installed one, or change the config and
+# re-run `paperdrop install`.
+
+[Unit]
+Description=PaperDrop wallpaper update
+Documentation=https://github.com/PelikanM400/paperdrop
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -m paperdrop run --config %h/.config/paperdrop/config.json

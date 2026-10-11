@@ -1,0 +1,43 @@
+{
+  "_comment": "PaperDrop configuration. Paths are user-scoped; ~ expands.",
+  "_comment_source": "mode=manifest reads a JSON manifest (recommended: it carries a sha256, so an unchanged image is never re-downloaded). mode=image treats the URL as a plain always-updated image and has NO manifest consistency guarantee.",
+  "source": {
+    "mode": "manifest",
+    "url": "https://raw.githubusercontent.com/PelikanM400/pelikan_daily_wallpaper/main/desk.json",
+    "image_mode_acknowledged": false,
+    "min_width": 1920,
+    "min_height": 1080
+  },
+  "_comment_paths": "Where the current and previous image are cached.",
+  "cache_dir": "~/.cache/paperdrop",
+  "state_file": "~/.local/state/paperdrop/state.json",
+  "log": {
+    "path": "~/.local/state/paperdrop/paperdrop.log",
+    "max_bytes": 262144,
+    "keep": 2
+  },
+  "_comment_http": "max_bytes caps a single download; retries apply only to transient failures (timeouts, 429, 5xx).",
+  "http": {
+    "timeout_seconds": 60,
+    "retries": 3,
+    "max_redirects": 5,
+    "max_bytes": 67108864,
+    "allow_http": false
+  },
+  "verify": {
+    "max_pixels": 100000000
+  },
+  "_comment_apply": "scaling=fill keeps the aspect ratio and fills the screen. helper_path is the compiled macOS helper (leave empty to auto-detect). xfce_image_style stays null to preserve whatever background style you configured in Xfce.",
+  "apply": {
+    "screens": "all",
+    "scaling": "fill",
+    "helper_path": "",
+    "xfce_image_style": null
+  },
+  "_comment_schedule": "Used by the installer to create the user-level schedule.",
+  "schedule": {
+    "daily_time": "05:05",
+    "catch_up_on_login": true,
+    "watch_screen_changes": true
+  }
+}

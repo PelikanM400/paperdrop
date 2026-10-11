@@ -1,0 +1,20 @@
+# Reference copy of the timer PaperDrop writes.
+#
+# `paperdrop install` generates this file into
+#   ~/.config/systemd/user/paperdrop.timer
+# with OnCalendar set from schedule.daily_time, then runs
+#   systemctl --user daemon-reload && systemctl --user enable --now paperdrop.timer
+#
+# Persistent=true is what handles a missed run: if the machine was off at the
+# scheduled time, the timer fires once on the next boot or login.
+
+[Unit]
+Description=PaperDrop daily wallpaper timer
+
+[Timer]
+OnCalendar=*-*-* 05:05:00
+Persistent=true
+Unit=paperdrop.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,8 @@
+{
+  "image_url": "https://example.test/a.jpg",
+  "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "copyright": "someone",
+  "collection": {
+    "id": 1
+  }
+}
