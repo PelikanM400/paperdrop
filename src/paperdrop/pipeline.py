@@ -96,6 +96,7 @@ def run_once(config, paths, platform, fetcher=None, now=None, force=False,
     # The shortcut is keyed on the source too: otherwise pointing PaperDrop at a
     # different source would be silently masked by "already up to date today".
     same_source = bool(success) and success.get('source_url') == source_url
+    source_changed = bool(success) and not same_source
     if success and not same_source and success.get('local_date') == today:
         logger.info('the configured source changed since the last success; '
                     'the same-day shortcut does not apply')
@@ -186,8 +187,15 @@ def run_once(config, paths, platform, fetcher=None, now=None, force=False,
         etag=getattr(fetcher, 'last_etag', None), last_modified=getattr(fetcher, 'last_last_modified', None),
         checks=['desktop_state'])
     outcome = 'updated' if downloaded else 'unchanged'
-    detail = ('downloaded and applied a new image' if downloaded
-              else 'the cached image was already current and the desktop state was confirmed')
+    if downloaded:
+        detail = 'downloaded and applied a new image'
+    elif source_changed:
+        # Common when the same image is published to two hosts: nothing to fetch,
+        # but say so instead of a bare "unchanged".
+        detail = ('the configured source changed, and it describes the same image, so the '
+                  'cached copy was kept and re-applied')
+    else:
+        detail = 'the cached image was already current and the desktop state was confirmed'
     return RunResult(outcome, detail, identity=target.identity, cache_path=str(image_path),
                      downloaded=downloaded, applied=True, checks=['desktop_state'],
                      warnings=list(target.warnings))

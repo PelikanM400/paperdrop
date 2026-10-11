@@ -110,6 +110,24 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual([call for call in fetcher.requests if call[1] == IMAGE_URL], [])
         self.assertEqual(platform.applied, [str(Cache(paths.cache_dir).current())])
 
+    def test_switching_to_a_source_with_the_same_image_explains_itself(self):
+        """Two mirrors of the same image: no download, but say why."""
+        config, paths, fetcher = self.build()
+        platform = support.FakePlatform()
+        self.run_once(config, paths, fetcher, platform=platform)
+        mirror = 'https://example.test/mirror.json'
+        fetcher.responses[mirror] = Response(
+            url=mirror, status=200,
+            data=support.manifest_for(self.image, image_url=IMAGE_URL,
+                                      width=640, height=360),
+            headers={'Content-Type': 'application/json'})
+        config['source']['url'] = mirror
+
+        result, platform = self.run_once(config, paths, fetcher, platform=platform)
+        self.assertFalse(result.downloaded, 'the same bytes are already cached')
+        self.assertIn('source changed', result.detail)
+        self.assertEqual(State(paths.state_file).load().last_success['source_url'], mirror)
+
     def test_force_redownloads_on_the_same_day(self):
         config, paths, fetcher = self.build()
         platform = support.FakePlatform()

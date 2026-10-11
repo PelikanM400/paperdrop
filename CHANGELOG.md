@@ -6,6 +6,12 @@ All notable changes to PaperDrop are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- When the configured source changes but the new source describes the same
+  image (for example the same wallpaper published to two hosts), the run says so
+  instead of a bare "already up to date". (Not in v0.1.1; it landed after that
+  tag, so it will ship in the next release.)
+
 ## [0.1.1] — 2026-10-11
 
 Two behaviour fixes found while setting PaperDrop up on a real Mac, plus the
