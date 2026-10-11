@@ -90,6 +90,7 @@ class ConfigTests(unittest.TestCase):
     def test_the_shipped_default_daily_time_is_0735(self):
         # The author's choice for both platforms; it must not drift back to an
         # unannounced value, and the example config has to agree with it.
+        self.write({'source': {'url': 'https://example.test/m.json'}})
         config, _ = load_config(self.path)
         self.assertEqual(config['schedule']['daily_time'], '07:35')
         self.assertEqual(example_config()['schedule']['daily_time'], '07:35')
