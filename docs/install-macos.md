@@ -109,6 +109,15 @@ Both are limited to the `Aqua` session type, which is what makes AppKit work.
 Logs go to `~/Library/Logs/dev.paperdrop.apply.{out,err}.log`, and PaperDrop's
 own rotating log is at `~/.local/state/paperdrop/paperdrop.log`.
 
+PaperDrop's own log rotates and is size-capped. The two launchd logs are **not**
+rotated by PaperDrop: launchd appends one short line per run, so with the hourly
+catch-up enabled expect roughly a kilobyte a day. They contain nothing sensitive
+and are safe to delete or truncate at any time:
+
+```bash
+: > ~/Library/Logs/dev.paperdrop.apply.out.log
+```
+
 Change the time by editing `schedule.daily_time` and running `paperdrop install`
 again, then:
 
