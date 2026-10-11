@@ -211,6 +211,11 @@ def _status(args, config, paths):
     if success:
         _print('last ok:    %s (%s)' % (success.get('finished_at'), success.get('local_date')))
         _print('            image %s' % success.get('image_sha256'))
+        recorded_source = success.get('source_url')
+        if recorded_source:
+            note = ('' if recorded_source == config['source']['url'].strip()
+                    else '   (the configured source has changed since then)')
+            _print('            source %s%s' % (recorded_source, note))
     else:
         _print('last ok:    never')
     attempt = state.last_attempt

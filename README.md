@@ -140,6 +140,11 @@ Prefer a URL that is pinned to an immutable revision (for example a commit
 hash) so the manifest and the image can never disagree; see
 [docs/manifest-spec.md](docs/manifest-spec.md).
 
+Changing the source later takes effect on the next `paperdrop run`: the
+same-day shortcut is keyed on the source URL, so a new source is never masked
+by "already up to date today". `paperdrop status` prints the source that the
+last success came from.
+
 ### Image mode (weaker, opt-in)
 
 `source.url` points straight at an always-updated image. This works, but it has
@@ -362,6 +367,9 @@ paperdrop install
 ```
 
 建议使用指向**不可变版本**的地址（例如带提交哈希的固定地址），这样清单与图片永远不会互相错位。详见 [docs/manifest-spec.md](docs/manifest-spec.md)。
+
+以后换源会在下一次 `paperdrop run` 时自动生效："当天已成功"的判断与源地址绑定，
+换了源不会被"今天已经更新过"掩盖。`paperdrop status` 会打印上一次成功所用的源地址。
 
 ### 图片模式（较弱，需显式确认）
 

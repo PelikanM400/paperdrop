@@ -16,6 +16,10 @@ cached, what succeeded last, and what the desktop currently reports.
 1. **Is today's run recorded?** `paperdrop status` shows the last success and its
    date. PaperDrop deliberately does nothing when today already succeeded *and*
    the desktop still shows the cached image.
+   Note that this shortcut is keyed on the source URL: if you changed
+   `source.url`, the next `paperdrop run` updates from the new source instead of
+   reporting "already up to date". `paperdrop status` shows the source the last
+   success came from, and flags it when it differs from the configured one.
 2. **Did the source actually change?** Compare the cached image with the source:
    ```bash
    python3 tools/validate-manifest.py <your manifest URL> --check-image

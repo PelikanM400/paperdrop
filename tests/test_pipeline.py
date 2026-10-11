@@ -74,6 +74,33 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(platform.apply_calls, 1, 'the wallpaper must not be re-applied')
         self.assertIn('desktop_state', result.checks)
 
+    def test_changing_the_source_url_does_not_silently_keep_todays_image(self):
+        """Switching sources must be picked up, not masked by the same-day shortcut."""
+        config, paths, fetcher = self.build()
+        platform = support.FakePlatform()
+        self.run_once(config, paths, fetcher, platform=platform)
+        fetcher.requests.clear()
+
+        other_url = 'https://example.test/other.json'
+        other_image = support.make_image((640, 360), color='blue')
+        fetcher.responses[other_url] = Response(
+            url=other_url, status=200,
+            data=support.manifest_for(other_image, image_url='https://example.test/other.jpg',
+                                      width=640, height=360),
+            headers={'Content-Type': 'application/json'})
+        fetcher.responses['https://example.test/other.jpg'] = Response(
+            url='https://example.test/other.jpg', status=200, data=other_image,
+            headers={'Content-Type': 'image/jpeg'})
+        config['source']['url'] = other_url
+
+        result, platform = self.run_once(config, paths, fetcher, platform=platform)
+        self.assertNotEqual(result.outcome, 'unchanged',
+                            'a new source must not be hidden behind "already up to date"')
+        self.assertTrue(result.downloaded)
+        self.assertEqual(fetcher.requests[0], ('GET', other_url))
+        self.assertEqual(Cache(paths.cache_dir).current().read_bytes(), other_image)
+        self.assertEqual(State(paths.state_file).load().last_success['source_url'], other_url)
+
     def test_matching_sha_in_cache_skips_the_download_but_still_applies(self):
         config, paths, fetcher = self.build()
         Cache(paths.cache_dir).publish(self.image, '.jpg')
@@ -184,6 +211,17 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result.outcome, 'unchanged')
         self.assertEqual(fetcher.requests, [])
         self.assertEqual(platform.apply_calls, 1)
+
+    def test_check_mode_with_a_changed_source_still_does_not_download(self):
+        """--check is the cheap repair path: a source change is reported, not fetched."""
+        config, paths, fetcher = self.build()
+        platform = support.FakePlatform()
+        self.run_once(config, paths, fetcher, platform=platform)
+        fetcher.requests.clear()
+        config['source']['url'] = 'https://example.test/other.json'
+        result, _ = self.run_once(config, paths, fetcher, platform=platform, check_only=True)
+        self.assertEqual(fetcher.requests, [], 'check mode must stay offline')
+        self.assertEqual(result.outcome, 'unchanged')
 
     def test_apply_cached_works_without_any_network_access(self):
         config, paths, fetcher = self.build()

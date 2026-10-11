@@ -90,9 +90,16 @@ def run_once(config, paths, platform, fetcher=None, now=None, force=False,
     state = State(paths.state_file).load()
     fetcher = fetcher or Fetcher.from_config(config)
     success = state.last_success
+    source_url = config['source']['url'].strip()
 
-    # --- 1. nothing to do when today already succeeded and the desktop agrees --
-    if not force and success and success.get('local_date') == today:
+    # --- 1. nothing to do when today already succeeded FROM THE SAME SOURCE ----
+    # The shortcut is keyed on the source too: otherwise pointing PaperDrop at a
+    # different source would be silently masked by "already up to date today".
+    same_source = bool(success) and success.get('source_url') == source_url
+    if success and not same_source and success.get('local_date') == today:
+        logger.info('the configured source changed since the last success; '
+                    'the same-day shortcut does not apply')
+    if not force and same_source and success.get('local_date') == today:
         cached = pathlib.Path(success.get('cache_path', ''))
         cached_ok = cached.is_file() and _cached_sha(cached) == success.get('image_sha256')
         if cached_ok:
@@ -115,8 +122,15 @@ def run_once(config, paths, platform, fetcher=None, now=None, force=False,
                 state.record_failure('the desktop state could not be confirmed', today=today)
                 return RunResult('failed', 'the cached image was applied but the desktop state '
                                            'could not be confirmed', checks=['desktop_state'])
-        if check_only:
-            logger.info('today\'s cached image is missing or changed; running a full update')
+
+    # --- 1b. --check never downloads: it either repaired above or reports -------
+    if check_only:
+        cached = cache.current()
+        detail = ('check only: the cached image does not match the configured source'
+                  if cached is not None else 'check only: there is no cached image yet')
+        logger.info('%s; run "paperdrop run" for a full update', detail)
+        return RunResult('unchanged', detail, cache_path=str(cached) if cached else '',
+                         checks=['check_only'])
 
     # --- 2. resolve the source ------------------------------------------------
     try:

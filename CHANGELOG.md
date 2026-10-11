@@ -6,15 +6,35 @@ All notable changes to PaperDrop are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-10-11
+
+Two behaviour fixes found while setting PaperDrop up on a real Mac, plus the
+documentation that came out of it. Still a pre-release: device behaviour on
+real hardware is not verified yet.
+
+### Fixed
+- Changing `source.url` is no longer masked by the same-day shortcut. The
+  "already succeeded today" check is now keyed on the source as well, so
+  pointing PaperDrop at a different source takes effect on the next `run`
+  instead of silently reporting "already up to date".
+- `paperdrop run --check` now really never downloads, matching what the README
+  has always claimed. Previously a missing or changed cached image made it fall
+  through to a full update; it now reports that a full run is needed.
+- `macos/build.sh` is recorded as executable in git, and the documentation uses
+  `bash build.sh --install`, which works even when a source tarball loses the
+  executable bit.
+
+### Added
+- `paperdrop status` prints the source recorded with the last success, and says
+  so when it no longer matches the configured one.
+- Troubleshooting entries for `pipx: command not found` right after
+  `pipx ensurepath`, and for macOS systems that only have the Command Line
+  Tools Python 3.9 (which is supported; pip selects the last compatible
+  Pillow, 11.3.x).
+
 ### Changed
 - README is now bilingual: English first, with a Chinese translation below.
   (Documentation only; no code or asset change, so v0.1.0 was not re-released.)
-
-### Fixed
-- `macos/build.sh` is now recorded as executable in git, and the documentation
-  uses `bash build.sh --install`. Unpacking the source tarball can lose the
-  executable bit, which previously produced a confusing "permission denied" on
-  the one step a macOS user must run by hand.
 
 ## [0.1.0] — 2026-10-11
 
