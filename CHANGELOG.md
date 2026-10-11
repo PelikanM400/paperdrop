@@ -6,6 +6,8 @@ All notable changes to PaperDrop are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.3] — 2026-10-11
+
 ### Changed
 - Default `schedule.daily_time` is now `07:35` (was `05:05`) — the author's own
   preference for both platforms. Anyone who wants a different time sets it in
