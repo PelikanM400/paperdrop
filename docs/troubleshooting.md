@@ -92,6 +92,32 @@ cd macos && bash build.sh --install
 This needs the Command Line Tools (`xcode-select --install`). Afterwards
 `paperdrop doctor` should report the helper path.
 
+## macOS: "pipx: command not found" right after installing pipx
+
+Expected, and nothing is broken. `pipx ensurepath` edits your shell
+configuration, but the terminal window you are sitting in was started before
+that edit, so it does not know the new path yet.
+
+Two ways out — either is fine:
+
+```bash
+# 1. run pipx by its full path for this one command (no new window needed)
+~/Library/Python/3.9/bin/pipx install <the wheel URL>
+
+# 2. or open a brand-new terminal window, then "pipx ..." works normally
+```
+
+After a `pipx install`, the `paperdrop` command lands in `~/.local/bin`, which
+is normally already on `PATH`; if it is not found either, use
+`~/.local/bin/paperdrop` or open a new terminal window.
+
+## macOS: only Python 3.9 is available (the Command Line Tools build)
+
+That is enough — no need to install another Python. PaperDrop supports Python
+3.9+, and on 3.9 pip automatically selects the last compatible Pillow (11.3.x)
+instead of the newest one. This combination is tested: the full suite and a
+real end-to-end run pass on 3.9.
+
 ## macOS: nothing happens at the scheduled time
 
 - Check that the agent is installed: `paperdrop status` lists the LaunchAgents.
