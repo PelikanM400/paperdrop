@@ -6,6 +6,22 @@ All notable changes to PaperDrop are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.5] — 2026-10-11
+
+### Added
+- **A hard ceiling on everything PaperDrop can write to disk**: about 5 MB in
+  total by default. A bug that logs in a loop can no longer fill a disk.
+  `log.max_bytes` is now 1 MB (was 256 KB) and `log.keep` stays 2, so the
+  rotating log tops out at 3 MB. On macOS the four files launchd writes for the
+  scheduled runs are capped at 1 MB each — launchd never rotates them, so
+  PaperDrop trims the oldest half off whenever one goes over, at every entry
+  point, including the resident watcher.
+
+### Fixed
+- The "no supported desktop" message named a hardcoded `v0.1.0` no matter what
+  was running; it now reports the running version.
+- Rebuilding the logger no longer leaves the previous log file open.
+
 ### Fixed
 - The "no supported desktop" error message named a stale version (`v0.1.0`) from
   a hardcoded string. It now reports the version that is actually running, and a

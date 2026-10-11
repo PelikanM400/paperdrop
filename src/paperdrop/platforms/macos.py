@@ -4,9 +4,11 @@ The Swift helper (``paperdrop-set``) does the two things that need AppKit:
 applying one image file to every screen with aspect-preserving fill, and
 re-applying it when the display configuration changes.
 
-UNVERIFIED: this module has not been exercised on a real Mac yet. Dual-screen
-behaviour, Spaces, external-display reconnection and wake-from-sleep must be
-validated on the target machine before the README claims support.
+PARTLY VERIFIED on one machine (MacBook Air M5, macOS 27.0.1, two displays):
+applying, dual-screen fill without stretching, all desktop spaces updating,
+external-display reconnection and wake-from-sleep all behaved. Still unverified
+there: the scheduled runs themselves (LaunchAgent timing, login catch-up,
+periodic catch-up after a wake) and what a quarantined helper looks like.
 """
 from __future__ import annotations
 
@@ -17,6 +19,7 @@ import shutil
 import subprocess
 
 from ..errors import PlatformError
+from ..journal import shrink_file
 from .base import Platform, runtime_command
 
 HELPER_NAME = 'paperdrop-set'
@@ -90,6 +93,17 @@ class MacOS(Platform):
     # --- scheduling ---------------------------------------------------------
     def _agent_dir(self):
         return self.home / 'Library' / 'LaunchAgents'
+
+    def cap_own_logs(self, limit):
+        """launchd owns our two log files and never rotates them."""
+        shrunk = []
+        for label in (APPLY_LABEL, WATCH_LABEL):
+            for kind in ('out', 'err'):
+                path = self._log_dir() / ('%s.%s.log' % (label, kind))
+                before = shrink_file(path, limit)
+                if before:
+                    shrunk.append((str(path), before))
+        return shrunk
 
     def _log_dir(self):
         return self.home / 'Library' / 'Logs'

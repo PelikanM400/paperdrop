@@ -138,7 +138,13 @@ def main(argv=None):
 
 
 def _platform(config):
-    return detect_platform(config)
+    platform = detect_platform(config)
+    # Every entry point keeps the log budget honest. On macOS this shrinks the
+    # two files launchd writes for us, which it never rotates itself; without it
+    # a bug that spams output could fill the disk. Costs one stat per file.
+    for path, before in platform.cap_own_logs(config['log']['max_bytes']):
+        LOG.info('shrank %s (was %d bytes) to stay within the log cap', path, before)
+    return platform
 
 
 def _run(args, config, paths):

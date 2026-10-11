@@ -64,6 +64,16 @@ class Platform:
     def status_lines(self) -> list:
         return []
 
+    # --- log budget ---------------------------------------------------------
+    def cap_own_logs(self, limit) -> list:
+        """Shrink the log files the operating system keeps for our runs.
+
+        Returns [(path, size_before)] for each file that was shrunk. PaperDrop's
+        own rotating log bounds itself; these are the files we do not own and
+        would otherwise grow without limit.
+        """
+        return []
+
 
 def require(executable):
     path = shutil.which(executable)

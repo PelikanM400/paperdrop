@@ -111,6 +111,25 @@ class MacPlannerTests(unittest.TestCase):
         self.assertEqual(len(removed), 2)
         self.assertEqual(list(self.agents().iterdir()), [])
 
+    def test_capping_shrinks_the_launchd_logs_but_only_when_needed(self):
+        # launchd owns these two files and never rotates them, so PaperDrop has to.
+        platform, _ = self.build()
+        logs = pathlib.Path(self.home) / 'Library' / 'Logs'
+        logs.mkdir(parents=True)
+        big = logs / (APPLY_LABEL + '.out.log')
+        small = logs / (APPLY_LABEL + '.err.log')
+        big.write_bytes(b'a line of output\n' * 4000)
+        small.write_bytes(b'one short line\n')
+
+        shrunk = platform.cap_own_logs(4096)
+        self.assertEqual([path for path, _ in shrunk], [str(big)])
+        self.assertLessEqual(big.stat().st_size, 4096 + 100)
+        self.assertEqual(small.read_bytes(), b'one short line\n', 'a small file is untouched')
+
+    def test_capping_ignores_logs_that_were_never_written(self):
+        platform, _ = self.build()
+        self.assertEqual(platform.cap_own_logs(4096), [])
+
     def test_a_missing_helper_is_a_clear_error(self):
         platform, _ = self.build()
         image = pathlib.Path(self.home) / 'wall.jpg'

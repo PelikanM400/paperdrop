@@ -180,3 +180,24 @@ paperdrop uninstall --purge    # also deletes the cached images
 
 Your wallpaper stays as it is either way — uninstalling does not reset the
 desktop to some default.
+
+## Where are the logs, and can they grow without limit?
+
+No. PaperDrop caps everything it can write at roughly **5 MB in total** by
+default, so a bug that logs in a loop still cannot fill a disk.
+
+| File | Ceiling |
+|---|---|
+| `~/.local/state/paperdrop/paperdrop.log` (rotates, `log.keep` backups) | `log.max_bytes` x (`log.keep` + 1) = 3 MB |
+| macOS only: `~/Library/Logs/dev.paperdrop.{apply,watch}.{out,err}.log` | `log.max_bytes` each = 2 MB |
+
+The rotating log is the useful one:
+
+```bash
+tail -30 ~/.local/state/paperdrop/paperdrop.log
+```
+
+The macOS files are written by launchd, which never rotates them, so PaperDrop
+trims them itself at every run: once a file passes `log.max_bytes` it keeps the
+newest half and writes one line noting the truncation. Lower `log.max_bytes` in
+your config to shrink the whole budget; nothing else needs to change.

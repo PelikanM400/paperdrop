@@ -139,6 +139,11 @@ class FakePlatform:
     def status_lines(self):
         return ['platform: fake']
 
+    def cap_own_logs(self, limit):
+        self.log_cap_calls = getattr(self, 'log_cap_calls', 0) + 1
+        self.log_cap_limit = limit
+        return []
+
 
 class SlowReportingPlatform(FakePlatform):
     """Reports the *previous* wallpaper for the first `lag` reads after an apply.

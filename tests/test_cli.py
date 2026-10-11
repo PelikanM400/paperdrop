@@ -173,6 +173,14 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn('NONE', json.loads(out)['manifest_consistency'])
 
+    def test_commands_keep_the_log_budget_in_place(self):
+        # Whatever the command, the files the OS writes for us stay capped.
+        self.write_config()
+        self.invoke('status')
+        self.assertGreaterEqual(self.platform.log_cap_calls, 1)
+        self.assertEqual(self.platform.log_cap_limit, 1048576,
+                         'the shipped cap is 1 MB per file')
+
     def test_install_and_uninstall_report_and_keep_the_cache(self):
         self.write_config()
         self.invoke('run')

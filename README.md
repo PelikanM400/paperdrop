@@ -221,6 +221,24 @@ Add `--json` for machine-readable output, anywhere on the command line.
 
 Only two images are ever kept. Nothing is written outside your home directory.
 
+### Logs are capped at about 5 MB in total
+
+There is no way for PaperDrop to fill a disk, even if something goes wrong and
+it starts logging in a loop:
+
+| File | Ceiling |
+|---|---|
+| `paperdrop.log`, rotated | `log.max_bytes` × (`log.keep` + 1) = **3 MB** by default |
+| macOS only: `~/Library/Logs/dev.paperdrop.apply.{out,err}.log` | `log.max_bytes` each = **2 MB** |
+
+The totals above are the defaults (`max_bytes` = 1 MB, `keep` = 2). When a
+launchd log goes over its cap, PaperDrop keeps the newest half of it and drops
+the rest, writing one line to say so. Set `log.max_bytes` lower to shrink the
+whole budget.
+
+The rotating log holds one line per run plus a line per decision, and contains
+URLs and outcomes only — never credentials, because there are none.
+
 ## Privacy and security
 
 - No account, no token, no API key, no telemetry.
@@ -448,6 +466,20 @@ python3 tools/validate-manifest.py https://example.com/desk.json --check-image
 | 锁文件 | `~/.local/state/paperdrop/paperdrop.lock` |
 
 **最多只保留两张图片**，且不会写到你主目录之外的任何位置。
+
+### 日志总量上限约 5 MB
+
+即使程序出 bug 疯狂写日志，也**不可能把磁盘写满**：
+
+| 文件 | 上限 |
+|---|---|
+| `paperdrop.log`（滚动） | `log.max_bytes` × (`log.keep` + 1) = 默认 **3 MB** |
+| 仅 macOS：`~/Library/Logs/dev.paperdrop.apply.{out,err}.log` | 每个 `log.max_bytes` = 共 **2 MB** |
+
+上表是默认值（`max_bytes` = 1 MB，`keep` = 2）。launchd 那两个日志超过上限时，
+PaperDrop 会**保留最新的一半、丢掉其余**，并写一行说明。把 `log.max_bytes` 调小即可整体压缩。
+
+滚动日志每次运行一行，只含地址与结果——**不含任何凭据**（本来就没有）。
 
 ## 隐私与安全
 

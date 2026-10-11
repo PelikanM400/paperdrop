@@ -24,7 +24,7 @@ SCHEMA = {
     },
     'cache_dir': '~/.cache/paperdrop',
     'state_file': '~/.local/state/paperdrop/state.json',
-    'log': {'path': '~/.local/state/paperdrop/paperdrop.log', 'max_bytes': 262144, 'keep': 2},
+    'log': {'path': '~/.local/state/paperdrop/paperdrop.log', 'max_bytes': 1048576, 'keep': 2},
     'http': {'timeout_seconds': 60, 'retries': 3, 'max_redirects': 5,
              'max_bytes': 67108864, 'allow_http': False},
     'verify': {'max_pixels': 100000000},
@@ -169,8 +169,13 @@ def example_config():
         '_comment_paths': 'Where the current and previous image are cached.',
         'cache_dir': '~/.cache/paperdrop',
         'state_file': '~/.local/state/paperdrop/state.json',
+        '_comment_log': ('One rotating file: max_bytes per file, keep backups, so the '
+                         'rotating log is bounded by max_bytes * (keep + 1). The files '
+                         'macOS writes for the scheduled runs are capped at max_bytes each '
+                         'too, which keeps every log PaperDrop can write at about 5 MB in '
+                         'total (1 MB x 3 + 1 MB x 2).'),
         'log': {'path': '~/.local/state/paperdrop/paperdrop.log',
-                'max_bytes': 262144, 'keep': 2},
+                'max_bytes': 1048576, 'keep': 2},
         '_comment_http': ('max_bytes caps a single download; retries apply only to transient '
                           'failures (timeouts, 429, 5xx).'),
         'http': {'timeout_seconds': 60, 'retries': 3, 'max_redirects': 5,
