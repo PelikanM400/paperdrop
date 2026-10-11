@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 import support
 
+from paperdrop import __version__
 from paperdrop.config import validate
 from paperdrop.errors import PlatformError
 from paperdrop.paths import Paths
@@ -260,6 +261,8 @@ class DetectionTests(unittest.TestCase):
         with self.assertRaises(PlatformError) as caught:
             detect_platform(config, environ={}, which=lambda name: None)
         self.assertIn('macOS and Xfce', str(caught.exception))
+        self.assertIn(__version__, str(caught.exception),
+                      'the message must name the version that is actually running')
 
 
 if __name__ == '__main__':

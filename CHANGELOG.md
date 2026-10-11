@@ -6,6 +6,11 @@ All notable changes to PaperDrop are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- The "no supported desktop" error message named a stale version (`v0.1.0`) from
+  a hardcoded string. It now reports the version that is actually running, and a
+  test pins it there.
+
 ## [0.1.4] — 2026-10-11
 
 ### Added
