@@ -127,8 +127,13 @@ def load_config(path=None):
     from .paths import default_config_file
     path = pathlib.Path(path) if path else default_config_file()
     if not path.is_file():
-        raise ConfigError('No configuration file at %s. Run "paperdrop install" or copy '
-                          'config.example.json there.' % path)
+        raise ConfigError(
+            'No configuration file at %s.\n'
+            'Create one with:\n'
+            '  mkdir -p %s\n'
+            '  paperdrop --print-example-config > %s\n'
+            'then set source.url in it (and source.image_mode_acknowledged if you '
+            'deliberately choose image mode).' % (path, path.parent, path))
     try:
         raw = json.loads(path.read_text(encoding='utf-8'))
     except (OSError, ValueError) as error:

@@ -6,6 +6,11 @@ All notable changes to PaperDrop are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- A missing config file now prints the two commands that create one (`mkdir -p`
+  plus `--print-example-config`), instead of pointing at a file that does not
+  exist yet. (On main, after v0.1.1.)
+
 ### Added
 - When the configured source changes but the new source describes the same
   image (for example the same wallpaper published to two hosts), the run says so

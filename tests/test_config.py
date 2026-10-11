@@ -30,6 +30,15 @@ class ConfigTests(unittest.TestCase):
             load_config(self.path)
         self.assertIn(str(self.path), str(caught.exception))
 
+    def test_missing_file_explains_how_to_create_one(self):
+        """The first thing a new user sees when the config does not exist yet."""
+        with self.assertRaises(ConfigError) as caught:
+            load_config(self.path)
+        message = str(caught.exception)
+        self.assertIn('mkdir -p %s' % self.path.parent, message)
+        self.assertIn('--print-example-config > %s' % self.path, message)
+        self.assertIn('source.url', message)
+
     def test_unknown_key_is_rejected_with_the_allowed_names(self):
         self.write({'source': {'url': 'https://example.test/m.json', 'mdoe': 'manifest'}})
         with self.assertRaises(ConfigError) as caught:
