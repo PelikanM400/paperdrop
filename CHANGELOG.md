@@ -6,6 +6,16 @@ All notable changes to PaperDrop are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Default `schedule.daily_time` is now `07:35` (was `05:05`) — the author's own
+  preference for both platforms. Anyone who wants a different time sets it in
+  their config; a config that omits `schedule` now picks this up.
+- README and the macOS install guide record the first real-hardware results:
+  dual-screen fill, every desktop space updating, external-display reconnection,
+  sleep/wake, and no Gatekeeper prompt for the locally built helper were all
+  confirmed on one machine (MacBook Air M5, macOS 27.0.1). The scheduled run
+  itself is still unverified, and that stays marked as such.
+
 ## [0.1.2] — 2026-10-11
 
 Found by running PaperDrop on a real Mac for the first time. Still a

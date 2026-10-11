@@ -135,7 +135,7 @@ class MacOS(Platform):
         }
         if catch_up_minutes > 0:
             # launchd does not fire a calendar trigger while the machine sleeps, so a
-            # daily run missed at 05:05 would otherwise wait a whole day. A periodic
+            # daily run missed overnight would otherwise wait a whole day. A periodic
             # trigger catches it soon after wake; the same-day check makes those extra
             # runs cheap (no download, no re-apply).
             triggers['StartInterval'] = catch_up_minutes * 60

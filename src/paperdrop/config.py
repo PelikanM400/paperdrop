@@ -30,7 +30,7 @@ SCHEMA = {
     'verify': {'max_pixels': 100000000},
     'apply': {'screens': 'all', 'scaling': 'fill', 'helper_path': '', 'xfce_image_style': None,
               'confirm_attempts': 5, 'confirm_delay_seconds': 0.8},
-    'schedule': {'daily_time': '05:05', 'catch_up_on_login': True, 'watch_screen_changes': True,
+    'schedule': {'daily_time': '07:35', 'catch_up_on_login': True, 'watch_screen_changes': True,
                  'catch_up_interval_minutes': 60},
 }
 
@@ -125,7 +125,7 @@ def validate(config):
     if not (isinstance(daily_time, str) and len(daily_time) == 5 and daily_time[2] == ':'
             and daily_time[:2].isdigit() and daily_time[3:].isdigit()
             and int(daily_time[:2]) < 24 and int(daily_time[3:]) < 60):
-        raise ConfigError('schedule.daily_time must look like "05:05" (24-hour).')
+        raise ConfigError('schedule.daily_time must look like "07:35" (24-hour).')
     for key in ('catch_up_on_login', 'watch_screen_changes'):
         if not isinstance(merged['schedule'][key], bool):
             raise ConfigError('schedule.%s must be true or false.' % key)
@@ -191,7 +191,7 @@ def example_config():
                               'missed while the machine was asleep happens soon after it '
                               'wakes; the same-day check makes those runs nearly free. '
                               '0 disables it.'),
-        'schedule': {'daily_time': '05:05', 'catch_up_on_login': True,
+        'schedule': {'daily_time': '07:35', 'catch_up_on_login': True,
                      'watch_screen_changes': True, 'catch_up_interval_minutes': 60},
     }
 

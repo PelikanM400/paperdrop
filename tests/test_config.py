@@ -87,6 +87,13 @@ class ConfigTests(unittest.TestCase):
             load_config(self.path)
         self.assertIn('manifest', str(caught.exception))
 
+    def test_the_shipped_default_daily_time_is_0735(self):
+        # The author's choice for both platforms; it must not drift back to an
+        # unannounced value, and the example config has to agree with it.
+        config, _ = load_config(self.path)
+        self.assertEqual(config['schedule']['daily_time'], '07:35')
+        self.assertEqual(example_config()['schedule']['daily_time'], '07:35')
+
     def test_daily_time_format_is_checked(self):
         for bad in ('5:05', '25:00', '05:70', 'noon'):
             self.write({'source': {'url': 'https://example.test/m.json'},

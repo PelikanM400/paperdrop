@@ -147,14 +147,18 @@ The wallpaper itself is left as it is.
 
 ## What still needs real testing
 
-Please report back on any of these; each is currently unknown:
+Confirmed on one machine (MacBook Air M5, macOS 27.0.1, built-in + 1920x1080
+display):
 
-- [ ] Does the image fill **both** screens correctly (internal + external)?
-- [ ] **Spaces**: does the change apply to every desktop space, or only some?
-- [ ] Unplug and reconnect the external display — is the cached image re-applied?
-- [ ] Close the lid and wake — is the wallpaper still correct, and does the
-      watcher survive?
+- [x] Both screens are detected and filled with the same image without stretching.
+- [x] The change applies to every desktop space, not just the current one.
+- [x] Unplugging and reconnecting the external display restores the cached image.
+- [x] Closing the lid and waking leaves the wallpaper intact.
+- [x] The locally built helper ran without a Gatekeeper prompt (it was not
+      quarantined, since it was compiled on the machine).
+
+Still unknown — please report back on any of these:
+
 - [ ] Does the daily LaunchAgent fire at `schedule.daily_time`?
+- [ ] Does the periodic catch-up fire after a wake from sleep?
 - [ ] Does a missed run catch up at the next login?
-- [ ] Does an unsigned binary trigger a Gatekeeper prompt, and what does the user
-      see?

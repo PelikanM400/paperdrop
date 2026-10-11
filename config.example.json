@@ -3,7 +3,7 @@
   "_comment_source": "mode=manifest reads a JSON manifest (recommended: it carries a sha256, so an unchanged image is never re-downloaded). mode=image treats the URL as a plain always-updated image and has NO manifest consistency guarantee.",
   "source": {
     "mode": "manifest",
-    "url": "https://raw.githubusercontent.com/PelikanM400/pelikan_daily_wallpaper/main/desk.json",
+    "url": "https://example.com/wallpapers/desk.json",
     "image_mode_acknowledged": false,
     "min_width": 1920,
     "min_height": 1080
@@ -27,17 +27,20 @@
   "verify": {
     "max_pixels": 100000000
   },
-  "_comment_apply": "scaling=fill keeps the aspect ratio and fills the screen. helper_path is the compiled macOS helper (leave empty to auto-detect). xfce_image_style stays null to preserve whatever background style you configured in Xfce.",
+  "_comment_apply": "scaling=fill keeps the aspect ratio and fills the screen. helper_path is the compiled macOS helper (leave empty to auto-detect). xfce_image_style stays null to preserve whatever background style you configured in Xfce. confirm_attempts/confirm_delay_seconds control how long to wait for the desktop to report the new wallpaper: some desktops keep answering with the old one for a moment after the change.",
   "apply": {
     "screens": "all",
     "scaling": "fill",
     "helper_path": "",
-    "xfce_image_style": null
+    "xfce_image_style": null,
+    "confirm_attempts": 5,
+    "confirm_delay_seconds": 0.8
   },
-  "_comment_schedule": "Used by the installer to create the user-level schedule.",
+  "_comment_schedule": "Used by the installer to create the user-level schedule. catch_up_interval_minutes adds a periodic cheap check so a run missed while the machine was asleep happens soon after it wakes; the same-day check makes those runs nearly free. 0 disables it.",
   "schedule": {
-    "daily_time": "05:05",
+    "daily_time": "07:35",
     "catch_up_on_login": true,
-    "watch_screen_changes": true
+    "watch_screen_changes": true,
+    "catch_up_interval_minutes": 60
   }
 }

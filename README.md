@@ -42,13 +42,14 @@ Honesty matters more than a longer feature list here.
 
 | Platform | Status | Verified | Not yet verified |
 |---|---|---|---|
-| **macOS** | Implemented, **not yet verified on real hardware** | Nothing on a real Mac yet. The Swift helper and the LaunchAgents are written but have not been compiled or run. | dual-screen fill behaviour; **Spaces** (whether every desktop space updates); external-display reconnection; wake-from-sleep; LaunchAgent timing and login catch-up; Gatekeeper prompt for an unsigned binary |
+| **macOS** | Implemented; **partly verified on real hardware** | On one machine (MacBook Air M5, macOS 27.0.1, two displays): the Swift helper compiles and runs; both screens are detected and filled with the same image without stretching; **every desktop space updates**; an unplugged-and-reconnected external display comes back with the cached image; sleep and wake leave the wallpaper intact. | LaunchAgent timing, the login catch-up and the periodic catch-up (the schedule has not been exercised yet); the Gatekeeper prompt (the locally built helper was not quarantined on that machine) |
 | **Linux (Xfce)** | Implemented, **pending verification on a real Xfce desktop** | Core pipeline runs end-to-end against real public sources on the development machine (download, SHA-256 verification, decode, atomic cache, same-day no-op, failure handling). | real `xfconf-query` backdrop property discovery; the background-style value that means "fill without stretching"; multiple monitors and multiple workspaces; a newly attached monitor; the systemd user timer inside a graphical session |
-| Both | The shared core: config, manifest parsing, transfer limits, verification, cache, state, lock, logging | Covered by the automated test suite (95 tests) — no network, no real desktop | — |
+| Both | The shared core: config, manifest parsing, transfer limits, verification, cache, state, lock, logging. Plus the platform artifacts we cannot run here: launchd plists, systemd units, Xfce property handling | Covered by the automated test suite (120 tests) — no network, no real desktop | — |
 
 macOS Spaces is the one to be careful about: the AppKit call is **per screen**,
-and the documentation does not promise anything about all Spaces. Treat it as
-unverified until it has been tested on your machine.
+and Apple's documentation promises nothing about all Spaces. One real machine
+reported that every space does update — useful, but one data point, not a
+guarantee. Verify it on your own machine.
 
 ## Quick start
 
@@ -295,11 +296,12 @@ PaperDrop 是一个小型的**每日壁纸客户端**，支持 **macOS** 与 **L
 
 | 平台 | 状态 | 已验证 | 尚未验证 |
 |---|---|---|---|
-| **macOS** | 已实现，**尚未在真实设备上验证** | 真实 Mac 上尚无任何验证。Swift 小工具与 LaunchAgent 已写好，但**从未编译、从未运行**。 | 双屏填充效果；**Spaces（多个桌面空间是否全部更新）**；外接显示器重新接入；休眠唤醒；LaunchAgent 触发时机与登录补检查；未签名二进制的 Gatekeeper 提示 |
+| **macOS** | 已实现；**已在真实设备上部分验证** | 在一台机器上（MacBook Air M5、macOS 27.0.1、两块屏）：Swift 小工具编译并运行成功；两块屏都被正确识别，同一张图各自铺满且未拉伸；**每个桌面空间都会更新**；外接显示器拔掉再插回后仍是缓存图片；合盖休眠再唤醒后壁纸完好。 | LaunchAgent 到点触发、登录补检查与周期补检查（定时尚未实测）；未签名二进制的 Gatekeeper 提示（该机器上本地编译的工具未被隔离） |
 | **Linux（Xfce）** | 已实现，**待在真实 Xfce 桌面上验证** | 共享流水线已在开发机上对接**真实公开源**跑通（下载、SHA-256 校验、解码、原子缓存、当天跳过、失败处理） | 真实 `xfconf-query` 背景属性发现；"等比填充不拉伸"对应的样式取值；多显示器与多工作区；新接入的显示器；systemd user timer 在图形会话中的运行 |
-| 两者共有 | 共享核心：配置、清单解析、传输限制、校验、缓存、状态、锁、日志 | 自动化测试覆盖（95 项，不联网、不依赖真实桌面） | — |
+| 两者共有 | 共享核心：配置、清单解析、传输限制、校验、缓存、状态、锁、日志；以及本机无法运行的平台产物（launchd plist、systemd 单元、Xfce 属性处理） | 自动化测试覆盖（120 项，不联网、不依赖真实桌面） | — |
 
-需要特别留意的是 macOS 的 **Spaces**：AppKit 的接口是**按屏幕**设置的，官方文档并未承诺"所有桌面空间都会更新"。在你自己的机器上实测之前，请把它当作未知。
+需要特别留意的是 macOS 的 **Spaces**：AppKit 的接口是**按屏幕**设置的，苹果官方文档并未承诺"所有桌面空间都会更新"。
+有一台真实机器反馈"每个空间都会更新"——这是有用的数据点，但不是普遍保证。请在你自己的机器上实测。
 
 ## 快速开始
 
