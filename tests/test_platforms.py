@@ -6,6 +6,8 @@ commands the Xfce adapter builds from discovered properties.
 """
 from __future__ import annotations
 
+import json
+import os
 import plistlib
 import pathlib
 import subprocess
@@ -130,6 +132,34 @@ class MacPlannerTests(unittest.TestCase):
         platform, _ = self.build()
         self.assertEqual(platform.cap_own_logs(4096), [])
 
+    def test_the_command_line_written_for_launchd_is_one_the_cli_accepts(self):
+        # The bug this exists for: the plist used to say "run --config X", but
+        # --config is a global option, so argparse rejected it and launchd
+        # recorded exit 2 on every fire. Nothing ran, and nothing was logged
+        # about it beyond the usage error. Asserting that "--config" is merely
+        # present was not enough; the generated argv has to be run.
+        platform, paths = self.build()
+        paths.config_file.write_text(json.dumps({
+            'source': {'url': 'https://127.0.0.1:9/desk.json'},   # refused instantly
+            'cache_dir': str(pathlib.Path(self.home) / 'cache'),
+            'state_file': str(pathlib.Path(self.home) / 'state.json'),
+            'log': {'path': str(pathlib.Path(self.home) / 'log')},
+        }))
+        with patch('paperdrop.platforms.macos.shutil.which', return_value='/usr/bin/launchctl'):
+            platform.install(paths, '05:05')
+        payload = plistlib.loads((self.agents() / (APPLY_LABEL + '.plist')).read_bytes())
+        argv = payload['ProgramArguments']
+        self.assertLess(argv.index('--config'), argv.index('run'),
+                        '--config must come before the verb')
+
+        env = dict(os.environ)
+        env.update(payload.get('EnvironmentVariables') or {})
+        completed = subprocess.run(argv, capture_output=True, env=env, timeout=180)
+        self.assertNotEqual(completed.returncode, 2,
+                            'launchd would exit 2 again: %s'
+                            % completed.stderr.decode()[-400:])
+        self.assertNotIn(b'unrecognized arguments', completed.stderr)
+
     def test_a_missing_helper_is_a_clear_error(self):
         platform, _ = self.build()
         image = pathlib.Path(self.home) / 'wall.jpg'
@@ -243,6 +273,16 @@ class XfceTests(unittest.TestCase):
         self.assertIn('ExecStart=', service)
         self.assertIn('run', service)
         self.assertIn('Type=oneshot', service)
+
+    def test_the_exec_start_line_puts_the_global_option_first(self):
+        # Same failure mode as the launchd plist: "run --config X" is a usage
+        # error, so the timer would fire and the unit would exit 2 silently.
+        platform, paths = self.build()
+        service, _ = platform._unit_text(paths, '05:05')
+        exec_line = [line for line in service.splitlines() if line.startswith('ExecStart=')][0]
+        self.assertIn('--config', exec_line)
+        self.assertLess(exec_line.index('--config'), exec_line.index(' run'),
+                        'the global option must precede the verb')
 
     def test_install_writes_the_units_and_enables_the_timer(self):
         platform, paths = self.build()

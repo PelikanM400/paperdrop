@@ -129,7 +129,9 @@ class Xfce(Platform):
 
     def _unit_text(self, paths, daily_time):
         argv, env = runtime_command()
-        command = ' '.join(argv + ['run', '--config', str(paths.config_file)])
+        # --config is a global option: it must come before the verb, or argparse
+        # exits 2 and the timer silently does nothing.
+        command = ' '.join(argv + ['--config', str(paths.config_file), 'run'])
         environment = ''.join('\nEnvironment=%s=%s' % (key, value)
                               for key, value in sorted(env.items()))
         hour, minute = daily_time.split(':')

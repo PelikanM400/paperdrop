@@ -115,7 +115,10 @@ class MacOS(Platform):
         argv, env = runtime_command()
         payload = {
             'Label': label,
-            'ProgramArguments': argv + arguments + ['--config', str(paths.config_file)],
+            # --config is a global option, so it has to precede the verb:
+            # argparse rejects "paperdrop run --config X" as a usage error
+            # (exit 2), which is exactly what launchd recorded before this fix.
+            'ProgramArguments': argv + ['--config', str(paths.config_file)] + arguments,
             'LimitLoadToSessionType': 'Aqua',
             'ProcessType': 'Background',
             'StandardOutPath': str(self._log_dir() / (label + '.out.log')),

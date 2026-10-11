@@ -6,6 +6,23 @@ All notable changes to PaperDrop are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.6] — 2026-10-11
+
+**Critical: the daily schedule never ran, on either platform.**
+
+### Fixed
+- The generated scheduler entry passed `--config` **after** the verb
+  (`paperdrop run --config X`), but it is a global option, so argparse rejected
+  it: the job exited 2 on every fire on both macOS (LaunchAgent) and Linux
+  (systemd unit). It also failed before writing anything to PaperDrop's own log
+  or state, so the schedule looked like it was simply doing nothing.
+  The option now precedes the verb in both the plist and the unit file.
+
+### Added
+- The test suite now **executes** the generated LaunchAgent `ProgramArguments` as
+  a subprocess, so argument order and parseability are covered rather than mere
+  presence; the systemd `ExecStart=` order is asserted too.
+
 ## [0.1.5] — 2026-10-11
 
 ### Added
