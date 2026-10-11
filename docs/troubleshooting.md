@@ -86,7 +86,7 @@ xfconf-query -c xfce4-desktop -l -v | grep image-style
 Build it on the Mac (it cannot be cross-compiled):
 
 ```bash
-cd macos && ./build.sh --install
+cd macos && bash build.sh --install
 ```
 
 This needs the Command Line Tools (`xcode-select --install`). Afterwards

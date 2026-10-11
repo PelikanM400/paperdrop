@@ -84,7 +84,7 @@ what proves a truncated or fake file is not a wallpaper.
 
 > **macOS users:** the release cannot include the AppKit helper — it must be
 > compiled on your Mac, since Apple's SDK cannot be cross-compiled:
-> `cd macos && ./build.sh --install`. See
+> `cd macos && bash build.sh --install`. See
 > [docs/install-macos.md](docs/install-macos.md).
 
 ### 2. Write a config
@@ -317,7 +317,7 @@ python3 -m venv .venv && .venv/bin/pip install -e .
 唯一的第三方依赖是 `Pillow`。它是**必需**的：只有真正解码一遍，才能确认截断的文件或伪装的 HTML 不是一张壁纸。
 
 > **macOS 用户请注意：** Release 里**不可能**包含 AppKit 小工具——苹果的 SDK 无法交叉编译，必须在你的 Mac 上编译一次：
-> `cd macos && ./build.sh --install`。详见 [docs/install-macos.md](docs/install-macos.md)。
+> `cd macos && bash build.sh --install`。详见 [docs/install-macos.md](docs/install-macos.md)。
 
 ### 2. 写配置
 

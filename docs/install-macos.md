@@ -41,8 +41,12 @@ changes.
 
 ```bash
 cd macos
-./build.sh --install        # builds, then copies to ~/Library/Application Support/PaperDrop/
+bash build.sh --install     # builds, then copies to ~/Library/Application Support/PaperDrop/
 ```
+
+Use the `bash build.sh` form: it works whether or not the file kept its
+executable bit (`./build.sh` is equivalent when the bit is set, which it is in
+a normal clone).
 
 `paperdrop` finds it there automatically; alternatively put it on `PATH` or set
 `apply.helper_path` in the config.

@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Build the macOS helper. Run this ON the Mac — PaperDrop cannot cross-compile it.
 #
-#   ./build.sh              build into ./paperdrop-set
-#   ./build.sh --install    also copy it to ~/Library/Application Support/PaperDrop/
+#   bash build.sh              build into ./paperdrop-set
+#   bash build.sh --install    also copy it to ~/Library/Application Support/PaperDrop/
+#
+# ("bash build.sh" works even if the executable bit was lost, e.g. after
+# unpacking the source tarball; "./build.sh" is the same when the bit is set.)
 #
 # Requires the Swift toolchain and the macOS SDK (Command Line Tools are enough:
 #   xcode-select --install).

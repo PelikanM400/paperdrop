@@ -10,6 +10,12 @@ All notable changes to PaperDrop are recorded here. The format follows
 - README is now bilingual: English first, with a Chinese translation below.
   (Documentation only; no code or asset change, so v0.1.0 was not re-released.)
 
+### Fixed
+- `macos/build.sh` is now recorded as executable in git, and the documentation
+  uses `bash build.sh --install`. Unpacking the source tarball can lose the
+  executable bit, which previously produced a confusing "permission denied" on
+  the one step a macOS user must run by hand.
+
 ## [0.1.0] — 2026-10-11
 
 First release. Scope deliberately small: one image a day, two platforms.
