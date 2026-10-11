@@ -4,9 +4,12 @@ All notable changes to PaperDrop are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions use
 [Semantic Versioning](https://semver.org/).
 
-## [0.1.0] — unreleased
+## [0.1.0] — 2026-10-11
 
 First release. Scope deliberately small: one image a day, two platforms.
+
+Published as a **pre-release**: the shared core is finished and exercised, but
+the platform-specific behaviour on real hardware has not been verified yet.
 
 ### Added
 - Manifest mode: read a JSON manifest that carries `image_url` plus `sha256`,
