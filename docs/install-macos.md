@@ -161,9 +161,29 @@ display):
 - [x] Closing the lid and waking leaves the wallpaper intact.
 - [x] The locally built helper ran without a Gatekeeper prompt (it was not
       quarantined, since it was compiled on the machine).
+- [x] The LaunchAgent runs when it is loaded and when it is triggered by hand,
+      exits 0, and records the run (`paperdrop status` shows a fresh
+      `last check:`).
 
 Still unknown — please report back on any of these:
 
-- [ ] Does the daily LaunchAgent fire at `schedule.daily_time`?
+- [ ] Does the daily LaunchAgent fire at `schedule.daily_time` on its own?
 - [ ] Does the periodic catch-up fire after a wake from sleep?
 - [ ] Does a missed run catch up at the next login?
+
+### Test the schedule without waiting for it
+
+Trigger the agent by hand and watch what it does:
+
+```bash
+launchctl kickstart -k gui/$(id -u)/dev.paperdrop.apply
+sleep 5
+paperdrop status                          # last check: should be seconds ago
+launchctl list | grep paperdrop           # the second column must be 0
+```
+
+The second column of `launchctl list` is the last exit status. **`2` means the
+scheduled command was rejected before it ran** — the classic cause is a
+malformed argument list in the plist, which is why it is worth checking here
+rather than assuming the schedule is fine. `tail -20
+~/Library/Logs/dev.paperdrop.apply.err.log` shows the reason.
