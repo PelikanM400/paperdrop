@@ -125,6 +125,10 @@ already succeeded, PaperDrop only checks the desktop state — no download, no
 re-apply. Set the interval to `0` to turn them off. On Linux, `Persistent=true`
 is what handles a run missed while the machine was off.
 
+To confirm the schedule is actually firing, `paperdrop status` prints
+`last check:` — the most recent run that happened and found nothing to do. You do
+not have to wait for a new image to appear in order to know the timer works.
+
 ## Configuring your wallpaper source
 
 Two modes. Both are public-only and need no credentials.
@@ -363,6 +367,9 @@ paperdrop install
 所以每日任务还带一个周期性补检查（`schedule.catch_up_interval_minutes`，默认 60 分钟），
 醒来自动补上。这些补检查几乎零成本：当天已成功时只检查桌面状态，不下载、不重设。
 设为 `0` 可关闭。Linux 侧靠 `Persistent=true` 处理"关机期间错过"的情况。
+
+想确认定时到底有没有在跑，看 `paperdrop status` 里的 `last check:` —— 那是最近一次"跑了但无事可做"的时间。
+不必等到壁纸真的换掉才知道定时生效。
 
 ## 配置你的壁纸源
 

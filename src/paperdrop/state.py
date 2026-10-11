@@ -72,3 +72,17 @@ class State:
         self.data['last_attempt'] = fields
         self.save()
         return self.data['last_attempt']
+
+    def record_noop(self, outcome, detail='', **fields):
+        """Remember a run that happened and had nothing to do.
+
+        Kept apart from last_success on purpose: "last ok" answers "when did it
+        last change my wallpaper", while the attempt answers "is the schedule
+        actually running" — which otherwise has no answer at all, because a run
+        that finds today's image already in place touches nothing on disk.
+        """
+        fields.update({'ok': True, 'outcome': outcome, 'detail': detail,
+                       'finished_at': now_iso()})
+        self.data['last_attempt'] = fields
+        self.save()
+        return self.data['last_attempt']

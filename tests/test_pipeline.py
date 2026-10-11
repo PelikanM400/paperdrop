@@ -100,6 +100,27 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(platform.apply_calls, 1, 'the wallpaper must not be re-applied')
         self.assertIn('desktop_state', result.checks)
 
+    def test_a_same_day_run_still_leaves_a_trace_that_it_happened(self):
+        # A run that finds today's image already in place used to touch nothing on
+        # disk, so "did the schedule fire?" could not be answered at all.
+        config, paths, fetcher = self.build()
+        platform = support.FakePlatform()
+        first, _ = self.run_once(config, paths, fetcher, platform=platform)
+        self.assertEqual(first.outcome, 'updated')
+        after_success = State(paths.state_file).load()
+        self.assertIsNone(after_success.last_attempt.get('outcome'),
+                          'a real success is recorded as a success, not as a no-op')
+
+        second, _ = self.run_once(config, paths, fetcher, platform=platform)
+        self.assertEqual(second.outcome, 'unchanged')
+        after_noop = State(paths.state_file).load()
+        self.assertTrue(after_noop.last_attempt['ok'])
+        self.assertEqual(after_noop.last_attempt['outcome'], 'unchanged')
+        self.assertTrue(after_noop.last_attempt['finished_at'])
+        self.assertEqual(after_noop.last_success['finished_at'],
+                         after_success.last_success['finished_at'],
+                         '"last ok" must keep meaning the last time it changed')
+
     def test_changing_the_source_url_does_not_silently_keep_todays_image(self):
         """Switching sources must be picked up, not masked by the same-day shortcut."""
         config, paths, fetcher = self.build()

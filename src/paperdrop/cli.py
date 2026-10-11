@@ -221,6 +221,9 @@ def _status(args, config, paths):
     attempt = state.last_attempt
     if attempt and not attempt.get('ok'):
         _print('last try:   FAILED %s (%s)' % (attempt.get('reason'), attempt.get('finished_at')))
+    elif attempt and attempt.get('outcome') == 'unchanged':
+        _print('last check: %s (nothing to do: already up to date)'
+               % attempt.get('finished_at'))
     for line in payload['desktop']:
         _print(line)
     return 0

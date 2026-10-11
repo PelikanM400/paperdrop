@@ -126,6 +126,23 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(out)['outcome'], 'updated')
 
+    def test_status_shows_that_a_scheduled_run_checked_and_did_nothing(self):
+        # This is what answers "did my timer fire?" on a day when the wallpaper was
+        # already correct — otherwise the run leaves no trace anywhere.
+        self.write_config()
+        self.invoke('run')
+        self.invoke('run')                      # the same-day no-op
+        code, out, _ = self.invoke('status')
+        self.assertEqual(code, 0)
+        self.assertIn('last ok:', out)
+        self.assertIn('last check:', out)
+        self.assertIn('already up to date', out)
+
+        code, out, _ = self.invoke('status', '--json')
+        payload = json.loads(out)
+        self.assertEqual(payload['last_attempt']['outcome'], 'unchanged')
+        self.assertTrue(payload['last_attempt']['ok'])
+
     def test_update_in_image_mode_exits_zero_and_flags_the_weak_guarantee(self):
         self.write_config(url=self.server.base + '/desk.jpg', mode='image')
         code, out, _ = self.invoke('run', '--json')

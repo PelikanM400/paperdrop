@@ -6,6 +6,16 @@ All notable changes to PaperDrop are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.4] — 2026-10-11
+
+### Added
+- **Every run now leaves a trace**, so "is my schedule firing?" has an answer.
+  A run that finds today's image already in place used to touch nothing on disk,
+  which made the question impossible to answer without reading a log file.
+  `paperdrop status` prints `last check:` — the most recent run that had nothing
+  to do. `last ok` keeps its stricter meaning: the last time the wallpaper
+  actually changed.
+
 ## [0.1.3] — 2026-10-11
 
 ### Changed

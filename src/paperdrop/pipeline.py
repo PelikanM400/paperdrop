@@ -99,9 +99,9 @@ def _cached_sha(path):
         return None
 
 
-def run_once(config, paths, platform, fetcher=None, now=None, force=False,
-             check_only=False, logger=None, sleep=None):
-    """Perform one run. Never raises for expected failures; returns a RunResult."""
+def _perform_run(config, paths, platform, fetcher=None, now=None, force=False,
+                 check_only=False, logger=None, sleep=None):
+    """The run itself. Never raises for expected failures; returns a RunResult."""
     logger = logger or logging.getLogger(LOGGER_NAME)
     sleep = sleep or time.sleep
     attempts = config['apply']['confirm_attempts']
@@ -268,3 +268,20 @@ def apply_cached(config, paths, platform, logger=None):
     platform.apply(cached)
     logger.info('applied the cached image %s', cached)
     return cached
+
+
+def run_once(config, paths, platform, fetcher=None, now=None, force=False,
+             check_only=False, logger=None, sleep=None):
+    """Perform one run, recording even the runs that had nothing to do.
+
+    Wrapping it here (rather than at each early return inside) keeps one rule:
+    every run leaves a trace, so "did the schedule fire?" is answerable without
+    reading a log file.
+    """
+    result = _perform_run(config, paths, platform, fetcher=fetcher, now=now, force=force,
+                          check_only=check_only, logger=logger, sleep=sleep)
+    if result.outcome == 'unchanged':
+        State(paths.state_file).load().record_noop('unchanged', result.detail,
+                                                   identity=result.identity,
+                                                   cache_path=result.cache_path)
+    return result
