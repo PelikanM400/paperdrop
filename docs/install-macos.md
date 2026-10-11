@@ -1,9 +1,12 @@
 # Installing PaperDrop on macOS
 
-> **Verification status:** nothing in this document has been verified on a real
-> Mac yet. The helper has not been compiled, and dual-screen behaviour, Spaces,
-> external-display reconnection and wake-from-sleep are all unverified. Treat
-> this as the intended procedure, not as a tested one.
+> **Verification status:** the procedure below has been followed on a real Mac
+> (MacBook Air M5, macOS 27.0.1): the helper compiles and runs, both screens are
+> filled without stretching, every desktop space updates, an external display
+> reconnected by hand comes back with the cached image, sleep/wake is fine, and
+> the LaunchAgent runs and records each run. Still unverified: the calendar
+> trigger firing at its time on its own, and the catch-up paths (see the
+> checklist at the end).
 
 ## Requirements
 
