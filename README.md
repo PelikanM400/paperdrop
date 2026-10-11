@@ -52,7 +52,23 @@ unverified until it has been tested on your machine.
 
 ### 1. Install
 
-From a checkout (recommended while the project is young):
+From the release page (a wheel and a source tarball are attached to each
+release; no build tools needed for either):
+
+```bash
+pipx install https://github.com/PelikanM400/paperdrop/releases/download/v0.1.0/paperdrop-0.1.0-py3-none-any.whl
+paperdrop --version
+```
+
+`pipx` keeps it in its own environment and puts `paperdrop` on your `PATH`. If
+you would rather not use pipx, `pip install --user <the same wheel>` works too,
+or install straight from the repository:
+
+```bash
+pipx install git+https://github.com/PelikanM400/paperdrop.git
+```
+
+From a checkout, if you want to run the tests or build the macOS helper:
 
 ```bash
 git clone https://github.com/PelikanM400/paperdrop.git
@@ -61,14 +77,13 @@ python3 -m venv .venv && .venv/bin/pip install -e .
 .venv/bin/paperdrop --version
 ```
 
-Or with pipx, which keeps it out of your system Python:
-
-```bash
-pipx install .
-```
-
 `Pillow` is the only third-party dependency. It is required: a real decode is
 what proves a truncated or fake file is not a wallpaper.
+
+> **macOS users:** the release cannot include the AppKit helper — it must be
+> compiled on your Mac, since Apple's SDK cannot be cross-compiled:
+> `cd macos && ./build.sh --install`. See
+> [docs/install-macos.md](docs/install-macos.md).
 
 ### 2. Write a config
 
