@@ -140,6 +140,32 @@ class FakePlatform:
         return ['platform: fake']
 
 
+class SlowReportingPlatform(FakePlatform):
+    """Reports the *previous* wallpaper for the first `lag` reads after an apply.
+
+    Real desktops do this: macOS accepts the change immediately but keeps
+    answering `desktopImageURL(for:)` with the old file for a moment.
+    """
+
+    def __init__(self, lag=1):
+        super().__init__()
+        self.lag = lag
+        self._lag_left = 0
+        self.polls = 0
+
+    def apply(self, image_path):
+        result = super().apply(image_path)
+        self._lag_left = self.lag
+        return result
+
+    def current(self):
+        self.polls += 1
+        if self._lag_left > 0:
+            self._lag_left -= 1
+            return '/previous/wallpaper.png'
+        return self.reports
+
+
 def write_config(directory, url, mode='manifest', **overrides):
     from paperdrop.config import validate
     config = {

@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime
 import logging
 import pathlib
+import time
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -73,6 +74,24 @@ def _display_matches(platform, expected_path):
     return True, 'the desktop shows the cached image'
 
 
+def _confirm_display(platform, expected_path, attempts, delay, sleep):
+    """Wait a little for the desktop to report the new image.
+
+    Not every desktop answers immediately: macOS accepts the change at once but
+    can keep returning the previous file for a moment, which used to turn a
+    successful apply into a reported failure.
+    """
+    attempts = max(1, int(attempts))
+    detail = 'the desktop did not report a wallpaper'
+    for attempt in range(attempts):
+        matched, detail = _display_matches(platform, expected_path)
+        if matched:
+            return True, detail
+        if attempt + 1 < attempts:
+            sleep(delay)
+    return False, detail
+
+
 def _cached_sha(path):
     try:
         return sha256_hex(path.read_bytes())
@@ -81,9 +100,12 @@ def _cached_sha(path):
 
 
 def run_once(config, paths, platform, fetcher=None, now=None, force=False,
-             check_only=False, logger=None):
+             check_only=False, logger=None, sleep=None):
     """Perform one run. Never raises for expected failures; returns a RunResult."""
     logger = logger or logging.getLogger(LOGGER_NAME)
+    sleep = sleep or time.sleep
+    attempts = config['apply']['confirm_attempts']
+    delay = config['apply']['confirm_delay_seconds']
     started = now or datetime.datetime.now().astimezone()
     today = started.date().isoformat()
     cache = Cache(paths.cache_dir)
@@ -113,7 +135,7 @@ def run_once(config, paths, platform, fetcher=None, now=None, force=False,
                 # A cheap repair: put the cached image back. No download, no re-selection.
                 logger.info('desktop state needs repair: %s', detail)
                 platform.apply(cached)
-                matches, detail = _display_matches(platform, cached)
+                matches, detail = _confirm_display(platform, cached, attempts, delay, sleep)
                 if matches:
                     state.record_success(**dict(success, finished_at=now_iso(),
                                                 local_date=today, checks=['reapplied']))
@@ -172,7 +194,7 @@ def run_once(config, paths, platform, fetcher=None, now=None, force=False,
         state.record_failure(str(error), today=today, identity=target.identity)
         return RunResult('failed', str(error), identity=target.identity,
                          cache_path=str(image_path), downloaded=downloaded)
-    matches, detail = _display_matches(platform, image_path)
+    matches, detail = _confirm_display(platform, image_path, attempts, delay, sleep)
     if not matches:
         reason = ('the image was cached but the desktop state could not be confirmed (%s)'
                   % detail)

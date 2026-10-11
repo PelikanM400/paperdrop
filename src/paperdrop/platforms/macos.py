@@ -122,18 +122,27 @@ class MacOS(Platform):
 
     def install(self, paths, daily_time):
         hour, minute = (int(part) for part in daily_time.split(':'))
+        catch_up_minutes = int((self.config.get('schedule') or {})
+                               .get('catch_up_interval_minutes', 60) or 0)
         agents = self._agent_dir()
         logs = self._log_dir()
         agents.mkdir(parents=True, exist_ok=True)
         logs.mkdir(parents=True, exist_ok=True)
         created = []
+        triggers = {
+            'RunAtLoad': True,                                    # login catch-up
+            'StartCalendarInterval': {'Hour': hour, 'Minute': minute},
+        }
+        if catch_up_minutes > 0:
+            # launchd does not fire a calendar trigger while the machine sleeps, so a
+            # daily run missed at 05:05 would otherwise wait a whole day. A periodic
+            # trigger catches it soon after wake; the same-day check makes those extra
+            # runs cheap (no download, no re-apply).
+            triggers['StartInterval'] = catch_up_minutes * 60
         apply_payload = self._payload(
             APPLY_LABEL, ['run'],
             paths,
-            extra={
-                'RunAtLoad': True,
-                'StartCalendarInterval': {'Hour': hour, 'Minute': minute},
-            })
+            extra=dict(triggers))
         watch_payload = self._payload(
             WATCH_LABEL, ['watch'],
             paths,
@@ -198,6 +207,11 @@ class MacOS(Platform):
 
     def status_lines(self):
         lines = ['platform: macOS']
+        catch_up = int((self.config.get('schedule') or {})
+                       .get('catch_up_interval_minutes', 60) or 0)
+        lines.append('scheduled: daily%s' % (
+            ' plus a catch-up check every %d minutes' % catch_up if catch_up > 0
+            else ' (periodic catch-up disabled)'))
         try:
             applied = self.current()
         except PlatformError as error:

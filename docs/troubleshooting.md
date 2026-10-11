@@ -39,6 +39,11 @@ The image was cached and the apply command was accepted, but reading back the
 current wallpaper did not return the cached file. The previous wallpaper is left
 alone and the run exits non-zero.
 
+- **macOS, occasionally, right after a fresh start:** some desktops keep
+  reporting the *previous* wallpaper for a moment after the change. PaperDrop
+  waits and re-reads — `apply.confirm_attempts` times, `apply.confirm_delay_seconds`
+  apart (5 × 0.8 s by default). If you still see this message, the wallpaper may
+  in fact have changed: check it, then raise those two values in your config.
 - **Linux/Xfce:** usually means PaperDrop is not running inside your graphical
   session. `echo $DISPLAY` and `echo $DBUS_SESSION_BUS_ADDRESS` should both be
   set. Run it from your desktop session, or use the installed systemd user timer.

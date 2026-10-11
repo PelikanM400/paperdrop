@@ -82,8 +82,28 @@ Two LaunchAgents are written to `~/Library/LaunchAgents`:
 
 | Label | Purpose |
 |---|---|
-| `dev.paperdrop.apply` | Runs at login and daily at `schedule.daily_time`. `RunAtLoad` is the catch-up path for a missed run. |
+| `dev.paperdrop.apply` | Runs at login (`RunAtLoad`), daily at `schedule.daily_time`, and periodically as a catch-up. |
 | `dev.paperdrop.watch` | Stays resident and re-applies the cached image when the display layout changes or the machine wakes (`KeepAlive`). |
+
+### Sleep, wake and missed runs
+
+launchd does **not** fire a calendar trigger while the Mac is asleep, and it does
+not wake the machine to run the job. So the daily agent carries a second trigger,
+`StartInterval`, set from `schedule.catch_up_interval_minutes` (60 minutes by
+default). After the Mac wakes, the daily run happens within that interval.
+
+Those extra runs are cheap on purpose: when today has already succeeded from the
+same source, PaperDrop reads its state and the current wallpaper and exits — no
+network request and no re-applying. Set `catch_up_interval_minutes` to `0` if you
+would rather have only the exact daily time plus the login run.
+
+Two consequences worth knowing:
+
+- If the Mac is asleep at `schedule.daily_time` and you never log in, the image
+  updates when the machine next wakes and the interval elapses.
+- The resident watcher (`dev.paperdrop.watch`) re-applies the **cached** image on
+  wake; it does not fetch a new one. That is deliberate: waking should not
+  trigger downloads.
 
 Both are limited to the `Aqua` session type, which is what makes AppKit work.
 Logs go to `~/Library/Logs/dev.paperdrop.apply.{out,err}.log`, and PaperDrop's

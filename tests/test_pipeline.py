@@ -46,7 +46,33 @@ class PipelineTests(unittest.TestCase):
         platform = platform or support.FakePlatform()
         kwargs.setdefault('now', NOW)
         kwargs.setdefault('logger', self.logger)
+        kwargs.setdefault('sleep', lambda seconds: None)   # tests never really wait
         return run_once(config, paths, platform, fetcher=fetcher, **kwargs), platform
+
+    def test_a_desktop_that_reports_the_old_image_is_retried(self):
+        """The confirmation must not give up on the first stale read."""
+        config, paths, fetcher = self.build()
+        platform = support.SlowReportingPlatform(lag=3)
+        waited = []
+        result, platform = self.run_once(config, paths, fetcher, platform=platform,
+                                         sleep=waited.append)
+        self.assertEqual(result.outcome, 'updated')
+        self.assertTrue(result.applied)
+        self.assertEqual(result.checks, ['desktop_state'])
+        self.assertTrue(waited, 'it should have waited before polling again')
+        self.assertEqual(State(paths.state_file).load().last_success['image_sha256'],
+                         sha256_hex(self.image))
+
+    def test_a_desktop_that_never_reports_the_new_image_still_fails(self):
+        config, paths, fetcher = self.build()
+        platform = support.FakePlatform(reports='/other.png', apply_effective=False)
+        waited = []
+        result, _ = self.run_once(config, paths, fetcher, platform=platform,
+                                  sleep=waited.append)
+        self.assertEqual(result.outcome, 'failed')
+        self.assertIn('could not be confirmed', result.detail)
+        self.assertTrue(waited, 'it should have retried before giving up')
+        self.assertIsNone(State(paths.state_file).load().last_success)
 
     # --- happy path ---------------------------------------------------------
     def test_first_run_downloads_verifies_caches_and_applies(self):

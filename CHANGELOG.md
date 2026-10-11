@@ -6,16 +6,50 @@ All notable changes to PaperDrop are recorded here. The format follows
 
 ## [Unreleased]
 
-### Changed
-- A missing config file now prints the two commands that create one (`mkdir -p`
-  plus `--print-example-config`), instead of pointing at a file that does not
-  exist yet. (On main, after v0.1.1.)
+## [0.1.2] — 2026-10-11
+
+Found by running PaperDrop on a real Mac for the first time. Still a
+pre-release: most device behaviour remains unverified.
+
+### Fixed
+- **A successful apply was reported as a failure** when the desktop took a
+  moment to report the new wallpaper. macOS does this: it accepts the change and
+  keeps answering with the old file for a moment. The confirmation now re-reads
+  the desktop state `apply.confirm_attempts` times, `apply.confirm_delay_seconds`
+  apart (5 x 0.8 s by default) before giving up.
+- Changing `source.url` is no longer masked by the same-day shortcut; it takes
+  effect on the next `paperdrop run`.
+- `paperdrop run --check` really never downloads now, as documented.
+- A missing config file prints the two commands that create one, instead of
+  pointing at a file that does not exist yet.
+- `macos/build.sh` is executable in git, and the docs use
+  `bash build.sh --install`, which survives a source tarball losing the bit.
+- Xfce adapter: the `xfconf-query` and `systemctl` paths are injectable rather
+  than looked up on every call, so a lookup failure can no longer mask a session
+  problem.
 
 ### Added
-- When the configured source changes but the new source describes the same
-  image (for example the same wallpaper published to two hosts), the run says so
-  instead of a bare "already up to date". (Not in v0.1.1; it landed after that
-  tag, so it will ship in the next release.)
+- **macOS sleep handling.** launchd does not fire a calendar trigger while the
+  Mac is asleep, so the daily agent also carries a periodic catch-up
+  (`schedule.catch_up_interval_minutes`, 60 minutes by default; `0` disables it).
+  Those runs are nearly free — with today already done there is no download and
+  no re-apply. `paperdrop status` now reports the schedule.
+- Off-device tests for the platform artifacts: the LaunchAgent plists (daily
+  trigger, login, catch-up interval, Aqua session), the systemd unit and timer
+  text, Xfce property discovery across monitors and workspaces, style
+  preservation, and the enable/disable flows — all through fake command runners.
+  The suite is now 120 tests.
+- `paperdrop status` prints the source that the last success came from, and
+  flags it when it no longer matches the configured source.
+- Troubleshooting entries for `pipx: command not found` after `pipx ensurepath`,
+  for macOS systems with only the Command Line Tools Python 3.9 (supported), and
+  for the desktop-state confirmation above.
+
+### Changed
+- When the configured source changes but resolves to the same image (the same
+  wallpaper published to two hosts), the run says so instead of a bare
+  "already up to date".
+- README is bilingual: English first, Chinese below.
 
 ## [0.1.1] — 2026-10-11
 

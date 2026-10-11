@@ -28,8 +28,10 @@ SCHEMA = {
     'http': {'timeout_seconds': 60, 'retries': 3, 'max_redirects': 5,
              'max_bytes': 67108864, 'allow_http': False},
     'verify': {'max_pixels': 100000000},
-    'apply': {'screens': 'all', 'scaling': 'fill', 'helper_path': '', 'xfce_image_style': None},
-    'schedule': {'daily_time': '05:05', 'catch_up_on_login': True, 'watch_screen_changes': True},
+    'apply': {'screens': 'all', 'scaling': 'fill', 'helper_path': '', 'xfce_image_style': None,
+              'confirm_attempts': 5, 'confirm_delay_seconds': 0.8},
+    'schedule': {'daily_time': '05:05', 'catch_up_on_login': True, 'watch_screen_changes': True,
+                 'catch_up_interval_minutes': 60},
 }
 
 MODES = ('manifest', 'image')
@@ -101,6 +103,14 @@ def validate(config):
     style = merged['apply']['xfce_image_style']
     if style is not None and (isinstance(style, bool) or not isinstance(style, int)):
         raise ConfigError('apply.xfce_image_style must be null or an integer.')
+    _require_positive_int(merged['apply'], 'confirm_attempts', minimum=1)
+    confirm_delay = merged['apply']['confirm_delay_seconds']
+    if isinstance(confirm_delay, bool) or not isinstance(confirm_delay, (int, float)) or confirm_delay < 0:
+        raise ConfigError('apply.confirm_delay_seconds must be a number >= 0.')
+    catch_up = merged['schedule']['catch_up_interval_minutes']
+    if isinstance(catch_up, bool) or not isinstance(catch_up, int) or catch_up < 0:
+        raise ConfigError('schedule.catch_up_interval_minutes must be an integer >= 0 '
+                          '(0 disables the periodic catch-up).')
     for key in ('timeout_seconds', 'retries', 'max_redirects', 'max_bytes'):
         _require_positive_int(merged['http'], key, minimum=1)
     _require_positive_int(merged['verify'], 'max_pixels', minimum=1)
@@ -169,12 +179,20 @@ def example_config():
         '_comment_apply': ('scaling=fill keeps the aspect ratio and fills the screen. '
                            'helper_path is the compiled macOS helper (leave empty to '
                            'auto-detect). xfce_image_style stays null to preserve whatever '
-                           'background style you configured in Xfce.'),
+                           'background style you configured in Xfce. '
+                           'confirm_attempts/confirm_delay_seconds control how long to wait '
+                           'for the desktop to report the new wallpaper: some desktops keep '
+                           'answering with the old one for a moment after the change.'),
         'apply': {'screens': 'all', 'scaling': 'fill', 'helper_path': '',
-                  'xfce_image_style': None},
-        '_comment_schedule': 'Used by the installer to create the user-level schedule.',
+                  'xfce_image_style': None, 'confirm_attempts': 5,
+                  'confirm_delay_seconds': 0.8},
+        '_comment_schedule': ('Used by the installer to create the user-level schedule. '
+                              'catch_up_interval_minutes adds a periodic cheap check so a run '
+                              'missed while the machine was asleep happens soon after it '
+                              'wakes; the same-day check makes those runs nearly free. '
+                              '0 disables it.'),
         'schedule': {'daily_time': '05:05', 'catch_up_on_login': True,
-                     'watch_screen_changes': True},
+                     'watch_screen_changes': True, 'catch_up_interval_minutes': 60},
     }
 
 

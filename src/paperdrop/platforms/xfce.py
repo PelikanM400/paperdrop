@@ -39,11 +39,16 @@ class Xfce(Platform):
     name = 'xfce'
     supports_screen_watch = False
 
-    def __init__(self, config=None, environ=None, runner=None, home=None):
+    def __init__(self, config=None, environ=None, runner=None, home=None,
+                 binary=None, systemctl=None):
         super().__init__(config)
         self.environ = dict(os.environ if environ is None else environ)
         self._runner = runner or _default_runner
         self.home = pathlib.Path(home or self.environ.get('HOME') or pathlib.Path.home())
+        # Resolved lazily, but injectable so the adapter can be exercised without
+        # Xfce installed.
+        self._binary = binary
+        self._systemctl_binary = systemctl
         apply_config = (config or {}).get('apply', {}) or {}
         self.image_style = apply_config.get('xfce_image_style')
 
@@ -58,7 +63,7 @@ class Xfce(Platform):
         return env
 
     def _xfconf(self, *args):
-        binary = shutil.which('xfconf-query')
+        binary = self._binary or shutil.which('xfconf-query')
         if not binary:
             raise PlatformError('xfconf-query was not found on PATH.')
         result = self._runner([binary, *args], env=self.session_env())
@@ -151,7 +156,7 @@ class Xfce(Platform):
         return service, timer
 
     def _systemctl(self, *args):
-        binary = shutil.which('systemctl')
+        binary = self._systemctl_binary or shutil.which('systemctl')
         if not binary:
             return None
         return self._runner([binary, '--user', *args], env=dict(self.environ))

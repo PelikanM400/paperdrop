@@ -5,6 +5,6 @@ configures, verifies it, caches it, and applies it to the desktop. It ships no
 images and never publishes anything.
 """
 
-__version__ = '0.1.1'
+__version__ = '0.1.2'
 
 USER_AGENT = 'PaperDrop/' + __version__ + ' (+https://github.com/PelikanM400/paperdrop)'

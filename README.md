@@ -116,6 +116,14 @@ paperdrop install
   `Persistent=true`, so a run missed while the machine was off happens once at
   the next login.
 
+**Neither scheduler wakes a sleeping machine.** On macOS a calendar trigger does
+not fire while the Mac is asleep, so the daily agent also carries a periodic
+catch-up (`schedule.catch_up_interval_minutes`, 60 by default) that picks the run
+up soon after the machine wakes. Those extra runs are nearly free: when today
+already succeeded, PaperDrop only checks the desktop state — no download, no
+re-apply. Set the interval to `0` to turn them off. On Linux, `Persistent=true`
+is what handles a run missed while the machine was off.
+
 ## Configuring your wallpaper source
 
 Two modes. Both are public-only and need no credentials.
@@ -348,6 +356,11 @@ paperdrop install
 
 - **macOS：** 在 `~/Library/LaunchAgents` 写入两个 LaunchAgent——一个每日运行（并且登录时也跑一次），一个常驻进程在显示器布局变化时重新应用缓存图片。
 - **Linux/Xfce：** 写入 systemd **用户级** service 与 timer，使用 `Persistent=true`，因此关机期间错过的运行会在下次登录时补上一次。
+
+**两边的调度都不会唤醒睡眠中的电脑。** macOS 的定时触发器在睡眠期间**不会触发**，
+所以每日任务还带一个周期性补检查（`schedule.catch_up_interval_minutes`，默认 60 分钟），
+醒来自动补上。这些补检查几乎零成本：当天已成功时只检查桌面状态，不下载、不重设。
+设为 `0` 可关闭。Linux 侧靠 `Persistent=true` 处理"关机期间错过"的情况。
 
 ## 配置你的壁纸源
 
