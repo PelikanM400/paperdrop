@@ -297,6 +297,31 @@ python -m unittest discover -s tests -t tests
 Please keep the project small and dependency-light: no GUI, no cloud service, no
 gallery management, and no non-Xfce desktop environments (yet).
 
+## How this project is built
+
+PaperDrop's code is not typed by hand: it is produced by AI agents.
+
+The owner supplies the requirements, runs the real-hardware acceptance on his own
+machines and decides what ships. The code, tests, documentation and release
+process come from a [Hermes Agent](https://hermes-agent.nousresearch.com/docs)
+session driven by DeepSeek models, with OpenAI's Codex (GPT) taking part in
+specific diagnosis and implementation work. Commits are authored by that agent,
+and nothing is published without passing two gates first:
+
+- an **independent review** by a separate agent instance — its own context, no
+  access to the first agent's reasoning — whose verdict is fail-closed: any
+  security or logic finding blocks the release;
+- an **anonymised verification** run: the release metadata and every asset are
+  re-read and downloaded without credentials, the checksums are checked, and the
+  test suite is run from the downloaded archive in an environment with no tokens
+  in it.
+
+That is why the verification table above reads the way it does. A claim is marked
+*verified* only where a real machine produced the evidence, and it is withdrawn
+in public when a later machine contradicts it — the external-display entry in
+0.1.12 is exactly that. If a claim here does not reproduce on your hardware, that
+is a bug report worth filing, and it will be corrected rather than explained away.
+
 ---
 
 # PaperDrop 中文说明
@@ -537,3 +562,21 @@ python -m unittest discover -s tests -t tests
 ```
 
 请让这个项目保持小而轻：不加图形界面、不接云服务、不做图库管理，也暂时不扩展到 Xfce 之外的桌面环境。
+
+## 这个项目是怎么做出来的
+
+PaperDrop 的代码不是手写的，而是由 AI agent 产出的。
+
+**需求、真机验收和"发不发版"由项目所有者决定**；代码、测试、文档和发布流程来自一个
+[Hermes Agent](https://hermes-agent.nousresearch.com/docs) 会话（驱动 DeepSeek 模型），
+OpenAI 的 Codex（GPT）也参与了部分排查与实现工作。提交由该 agent 产生，而任何东西要对外发布，
+都必须先过两道关：
+
+- **独立复审**：由**另一个独立的 agent 实例**完成——独立上下文，看不到第一个 agent 的推理过程；
+  判定是 fail-closed 的：只要有安全问题或逻辑缺陷，就不许发版；
+- **匿名核验**：不带任何凭据重新读取 Release 元数据、把每个资产下载回来校验哈希，
+  并在**环境里没有任何令牌**的情况下，从下载回来的源码包跑一遍测试套件。
+
+上面那张验证表就是这么来的：只有**真机给出证据**的行为才会被标成"已验证"，
+而且一旦被别的机器推翻，就**公开撤回**——0.1.12 里外接屏那一条正是如此。
+如果你在自己机器上发现哪条声明不成立，那是个值得提的 Issue，会被更正，而不是被解释掉。
