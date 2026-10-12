@@ -40,11 +40,18 @@ in case that shape is useful to someone else.
 
 Honesty matters more than a longer feature list here.
 
+> **v0.1.7 acceptance is pending on a real Mac.** The observations below are
+> from the earlier helper/first installation. On the second day, a new verified
+> cache file still left old pixels on the desktop, despite an exit-0/path match.
+> This release changes image URLs and the watcher; offline tests do not prove
+> that the updated helper compiles or that successive images visibly refresh.
+> See `docs/upgrade-0.1.7-zh.md` for the coordinated Python/helper upgrade.
+
 | Platform | Status | Verified | Not yet verified |
 |---|---|---|---|
 | **macOS** | Implemented; **mostly verified on real hardware** | On one machine (MacBook Air M5, macOS 27.0.1, two displays): the Swift helper compiles and runs; both screens are filled with the same image without stretching; **every desktop space updates**; an external display reconnected by hand comes back with the cached image; sleep and wake leave the wallpaper intact; the LaunchAgent loads, runs `paperdrop` when launched and when triggered by hand, exits 0, and records each run. | The calendar trigger firing at its configured time on its own; the periodic catch-up after a wake; the login catch-up; the Gatekeeper prompt (the locally built helper was not quarantined on that machine) |
 | **Linux (Xfce)** | Implemented, **pending verification on a real Xfce desktop** | Core pipeline runs end-to-end against real public sources on the development machine (download, SHA-256 verification, decode, atomic cache, same-day no-op, failure handling). | real `xfconf-query` backdrop property discovery; the background-style value that means "fill without stretching"; multiple monitors and multiple workspaces; a newly attached monitor; the systemd user timer inside a graphical session |
-| Both | The shared core: config, manifest parsing, transfer limits, verification, cache, state, lock, logging. Plus the platform artifacts we cannot run here: launchd plists, systemd units, Xfce property handling — and the generated command line is executed by the suite, so a scheduler entry that cannot run fails the tests | Covered by the automated test suite (135 tests) — no network, no real desktop | — |
+| Both | The shared core: config, manifest parsing, transfer limits, verification, cache, state, lock, logging. Plus the platform artifacts we cannot run here: launchd plists, systemd units, Xfce property handling — and the generated command line is executed by the suite, so a scheduler entry that cannot run fails the tests | Covered by the automated test suite (159 tests) — no network, no real desktop | — |
 
 macOS Spaces is the one to be careful about: the AppKit call is **per screen**,
 and Apple's documentation promises nothing about all Spaces. One real machine
@@ -59,7 +66,7 @@ From the release page (a wheel and a source tarball are attached to each
 release; no build tools needed for either):
 
 ```bash
-pipx install https://github.com/PelikanM400/paperdrop/releases/download/v0.1.0/paperdrop-0.1.0-py3-none-any.whl
+pipx install https://github.com/PelikanM400/paperdrop/releases/download/v0.1.7/paperdrop-0.1.7-py3-none-any.whl
 paperdrop --version
 ```
 
@@ -214,12 +221,19 @@ Add `--json` for machine-readable output, anywhere on the command line.
 | What | Path |
 |---|---|
 | Config | `~/.config/paperdrop/config.json` (`$PAPERDROP_CONFIG` overrides) |
-| Current and previous image | `~/.cache/paperdrop/current.*`, `previous.*` |
+| Current and previous image | `~/.cache/paperdrop/image-<sha256>.*`, selected by `images.json` |
 | State | `~/.local/state/paperdrop/state.json` |
 | Log (rotating, bounded) | `~/.local/state/paperdrop/paperdrop.log` |
 | Lock | `~/.local/state/paperdrop/paperdrop.lock` |
 
-Only two images are ever kept. Nothing is written outside your home directory.
+Completed cache operations retain only current and previous image data, plus a
+small atomic role index. Private staging can temporarily use extra space; the
+next run removes files left by an interrupted publication. Image filenames stay
+immutable when roles change, preventing macOS from reusing pixels cached against
+an overwritten path. Legacy `current.*` / `previous.*` caches migrate on first
+run or offline apply; their bytes are preserved. Nothing is written outside your
+home directory. For macOS upgrades, rebuild the helper and restart the watcher
+as described in [the macOS guide](docs/install-macos.md#upgrading-from-v016-fixed-path-caches).
 
 ### Logs are capped at about 5 MB in total
 
@@ -320,19 +334,24 @@ PaperDrop 是一个小型的**每日壁纸客户端**，支持 **macOS** 与 **L
 |---|---|---|---|
 | **macOS** | 已实现；**大部分已在真实设备上验证** | 在一台机器上（MacBook Air M5、macOS 27.0.1、两块屏）：Swift 小工具编译并运行成功；两块屏都是同一张图且未拉伸；**每个桌面空间都会更新**；外接显示器拔掉再插回后仍是缓存图片；合盖休眠再唤醒后壁纸完好；LaunchAgent 能加载，在加载时和手动触发时都能成功运行 `paperdrop`、退出码 0，并且每次都留下运行记录。 | 日历触发**自己**在设定时间到点触发；睡醒后的周期补检查；登录补跑；未签名二进制的 Gatekeeper 提示（该机器上本地编译的工具未被隔离） |
 | **Linux（Xfce）** | 已实现，**待在真实 Xfce 桌面上验证** | 共享流水线已在开发机上对接**真实公开源**跑通（下载、SHA-256 校验、解码、原子缓存、当天跳过、失败处理） | 真实 `xfconf-query` 背景属性发现；"等比填充不拉伸"对应的样式取值；多显示器与多工作区；新接入的显示器；systemd user timer 在图形会话中的运行 |
-| 两者共有 | 共享核心：配置、清单解析、传输限制、校验、缓存、状态、锁、日志；以及本机无法运行的平台产物（launchd plist、systemd 单元、Xfce 属性处理）——**测试会真的执行生成出来的命令行**，所以"跑不起来的定时条目"会导致测试失败 | 自动化测试覆盖（135 项，不联网、不依赖真实桌面） | — |
+| 两者共有 | 共享核心：配置、清单解析、传输限制、校验、缓存、状态、锁、日志；以及本机无法运行的平台产物（launchd plist、systemd 单元、Xfce 属性处理）——**测试会真的执行生成出来的命令行**，所以"跑不起来的定时条目"会导致测试失败 | 自动化测试覆盖（159 项，不联网、不依赖真实桌面） | — |
 
 需要特别留意的是 macOS 的 **Spaces**：AppKit 的接口是**按屏幕**设置的，苹果官方文档并未承诺"所有桌面空间都会更新"。
 有一台真实机器反馈"每个空间都会更新"——这是有用的数据点，但不是普遍保证。请在你自己的机器上实测。
 
 ## 快速开始
 
+> **v0.1.7 的 Mac 真机验收尚未完成。** 上方记录是旧组件首次安装时的观察；
+> 第二天已发现“新缓存正确、程序退出 0，但桌面仍显示旧图”的问题。
+> 本版修改了图片路径和 watcher，离线通过不等于原生编译或连续换图已验证。
+> 从旧版升级时请按 `docs/upgrade-0.1.7-zh.md` 同时更新 Python 和 Mac 组件。
+
 ### 1. 安装
 
 从 Release 页面安装（每个版本都附带 wheel 安装包与源码包，都不需要编译工具）：
 
 ```bash
-pipx install https://github.com/PelikanM400/paperdrop/releases/download/v0.1.0/paperdrop-0.1.0-py3-none-any.whl
+pipx install https://github.com/PelikanM400/paperdrop/releases/download/v0.1.7/paperdrop-0.1.7-py3-none-any.whl
 paperdrop --version
 ```
 
@@ -383,7 +402,7 @@ paperdrop install
 
 **两边的调度都不会唤醒睡眠中的电脑。** macOS 的定时触发器在睡眠期间**不会触发**，
 所以每日任务还带一个周期性补检查（`schedule.catch_up_interval_minutes`，默认 60 分钟），
-醒来自动补上。这些补检查几乎零成本：当天已成功时只检查桌面状态，不下载、不重设。
+醒来自动补上。这些补检查几乎零成本：当天已成功且桌面仍匹配时不下载、不重设；若桌面已变，会离线重新应用已校验的缓存并有界确认。
 设为 `0` 可关闭。Linux 侧靠 `Persistent=true` 处理"关机期间错过"的情况。
 
 想确认定时到底有没有在跑，看 `paperdrop status` 里的 `last check:` —— 那是最近一次"跑了但无事可做"的时间。

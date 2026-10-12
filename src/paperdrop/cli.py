@@ -297,7 +297,7 @@ def _watch(args, config, paths):
         return 1
     path = apply_cached(config, paths, platform, logger=LOG)
     LOG.info('watching for screen configuration changes')
-    return platform.watch(path)
+    return platform.watch(path, lock_file=paths.lock_file)
 
 
 def _doctor(args):

@@ -11,7 +11,8 @@
 // Usage:  paperdrop-set apply <file> [--fill|--fit]
 //         paperdrop-set current          -> prints the current wallpaper path
 //         paperdrop-set screens          -> one line per screen
-//         paperdrop-set watch <file>     -> applies, then re-applies on change
+//         paperdrop-set watch <file> --lock-file <path> -> legacy file argument
+//         paperdrop-set watch-cache <directory> --lock-file <path> -> resolves active on each event
 //
 // IMPORTANT: as of writing this file has NOT been compiled or run on a real
 // Mac. Treat everything it claims as unverified until the checklist in
@@ -19,6 +20,7 @@
 
 import AppKit
 import Foundation
+import Darwin
 
 enum HelperError: Error, CustomStringConvertible {
     case usage
@@ -33,7 +35,8 @@ enum HelperError: Error, CustomStringConvertible {
               paperdrop-set apply <file> [--fill|--fit]
               paperdrop-set current
               paperdrop-set screens
-              paperdrop-set watch <file>
+              paperdrop-set watch <file> --lock-file <path>
+              paperdrop-set watch-cache <directory> --lock-file <path>
             """
         case .missingFile(let path):
             return "no such image file: \(path)"
@@ -96,20 +99,97 @@ func printScreens() {
     }
 }
 
+/// Read one atomic role index on every event. Never resolve a symlink/fixed
+/// current.jpg URL and hand that alias to AppKit: image URLs must be immutable.
+struct ImageIndex: Decodable {
+    let version: Int
+    let current: String?
+    let previous: String?
+    let active: String?
+
+    enum CodingKeys: String, CodingKey { case version, current, previous, active }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decode(Int.self, forKey: .version)
+        current = try container.decodeIfPresent(String.self, forKey: .current)
+        previous = try container.decodeIfPresent(String.self, forKey: .previous)
+        // Older v1 indices have no active field; explicit null means no confirmed image.
+        active = container.contains(.active)
+            ? try container.decodeIfPresent(String.self, forKey: .active) : current
+    }
+}
+
+func checkedImagePath(_ url: URL) throws -> String {
+    let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+    guard attributes[.type] as? FileAttributeType == FileAttributeType.typeRegular else {
+        throw HelperError.applyFailed("cache target must be a regular non-symlink file")
+    }
+    return url.path
+}
+
+func cachedImagePath(_ directory: String, fallback: String? = nil) throws -> String {
+    let root = URL(fileURLWithPath: (directory as NSString).expandingTildeInPath)
+    let indexURL = root.appendingPathComponent("images.json")
+    let indexExists = (try? FileManager.default.attributesOfItem(atPath: indexURL.path)) != nil
+    if indexExists {
+        _ = try checkedImagePath(indexURL)
+        let index = try JSONDecoder().decode(ImageIndex.self, from: Data(contentsOf: indexURL))
+        guard index.version == 1 else {
+            throw HelperError.applyFailed("invalid cache image index")
+        }
+        for role in [index.current, index.previous, index.active] {
+            if let name = role {
+                guard name.range(of: "^image-[0-9a-f]{64}\\.[a-zA-Z0-9]+$",
+                                 options: .regularExpression) != nil else {
+                    throw HelperError.applyFailed("invalid cache image name")
+                }
+                _ = try checkedImagePath(root.appendingPathComponent(name))
+            }
+        }
+        guard let name = index.active else { throw HelperError.missingFile(root.path) }
+        return try checkedImagePath(root.appendingPathComponent(name))
+    }
+    // Compatibility with a pre-upgrade cache; Python migrates it before watch.
+    let names = try FileManager.default.contentsOfDirectory(atPath: root.path)
+    guard let name = names.sorted().first(where: { $0.hasPrefix("current.") }) else {
+        if let fallback = fallback { return try checkedImagePath(URL(fileURLWithPath: fallback)) }
+        throw HelperError.missingFile(root.path)
+    }
+    return try checkedImagePath(root.appendingPathComponent(name))
+}
+
 /// Applies the image now and whenever the display layout changes or the
 /// machine wakes. Blocks forever; this is what the LaunchAgent keeps alive.
-func watch(_ path: String, fill: Bool) throws {
-    try applyImage(path, fill: fill)
+func withUpdateLock(_ path: String, action: () throws -> Void) throws {
+    let fd = Darwin.open((path as NSString).expandingTildeInPath, O_RDWR | O_CREAT, 0o600)
+    guard fd >= 0 else { throw HelperError.applyFailed("could not open update lock") }
+    defer { Darwin.close(fd) }
+    // Wait for an updater, then resolve anew. Never capture a URL before locking.
+    while Darwin.flock(fd, LOCK_EX) != 0 {
+        if errno != EINTR { throw HelperError.applyFailed("could not acquire update lock") }
+    }
+    defer { _ = Darwin.flock(fd, LOCK_UN) }
+    try action()
+}
+
+func watch(_ resolve: @escaping () throws -> String, lockPath: String, fill: Bool) throws {
+    let applyLatest = {
+        try withUpdateLock(lockPath) {
+            try applyImage(resolve(), fill: fill)
+        }
+    }
+    try applyLatest()
     let center = NSWorkspace.shared.notificationCenter
     let reapply: (Notification) -> Void = { notification in
         do {
-            try applyImage(path, fill: fill)
+            try applyLatest()
             FileHandle.standardError.write("paperdrop-set: re-applied after \(notification.name.rawValue)\n".data(using: .utf8)!)
         } catch {
             FileHandle.standardError.write("paperdrop-set: re-apply failed: \(error)\n".data(using: .utf8)!)
         }
     }
-    center.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+    NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                        object: nil, queue: .main, using: reapply)
     center.addObserver(forName: NSWorkspace.didWakeNotification,
                        object: nil, queue: .main, using: reapply)
@@ -120,6 +200,12 @@ func run() throws {
     var arguments = Array(CommandLine.arguments.dropFirst())
     guard let command = arguments.first else { throw HelperError.usage }
     arguments.removeFirst()
+
+    func watchLockPath() throws -> String {
+        guard let offset = arguments.firstIndex(of: "--lock-file"),
+              offset + 1 < arguments.count else { throw HelperError.usage }
+        return arguments[offset + 1]
+    }
 
     switch command {
     case "apply":
@@ -135,7 +221,14 @@ func run() throws {
         printScreens()
     case "watch":
         guard let path = arguments.first else { throw HelperError.usage }
-        try watch(path, fill: !arguments.contains("--fit"))
+        let directory = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+            .deletingLastPathComponent().path
+        try watch({ try cachedImagePath(directory, fallback: path) },
+                  lockPath: try watchLockPath(), fill: !arguments.contains("--fit"))
+    case "watch-cache":
+        guard let directory = arguments.first else { throw HelperError.usage }
+        try watch({ try cachedImagePath(directory) },
+                  lockPath: try watchLockPath(), fill: !arguments.contains("--fit"))
     default:
         throw HelperError.usage
     }

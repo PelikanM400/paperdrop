@@ -69,6 +69,77 @@ class MacPlannerTests(unittest.TestCase):
     def agents(self):
         return pathlib.Path(self.home) / 'Library' / 'LaunchAgents'
 
+    def test_resident_watch_passes_cache_directory_not_startup_image(self):
+        from paperdrop.cache import Cache
+        cache = Cache(self.home / 'cache')
+        first = cache.publish(b'A', '.jpg')
+        platform, paths = self.build()
+        with patch.object(platform, 'helper', return_value='/fake/paperdrop-set'), \
+                patch('paperdrop.platforms.macos.subprocess.call', return_value=0) as call:
+            self.assertEqual(platform.watch(first, lock_file=paths.lock_file), 0)
+        self.assertEqual(call.call_args[0][0],
+                         ['/fake/paperdrop-set', 'watch-cache', str(cache.directory),
+                          '--lock-file', str(paths.lock_file)])
+        cache.publish(b'B', '.jpg')
+        self.assertNotEqual(cache.current(), first)
+
+    def test_watch_source_resolves_current_inside_each_event_callback(self):
+        # Source contract only: no Swift/AppKit compiler or runtime on Linux.
+        source = (support.ROOT / 'macos/Sources/paperdrop-set/main.swift').read_text()
+        self.assertIn('case "watch-cache":', source)
+        self.assertNotIn('try watch({ path }', source,
+                         'the legacy watch command must also pick up a migrated index')
+        self.assertIn('try watch({ try cachedImagePath(directory) }', source)
+        body = source.split('func watch(', 1)[1].split('func run()', 1)[0]
+        self.assertIn('try applyImage(resolve(), fill: fill)', body)
+        callback = body.split('let reapply:', 1)[1]
+        self.assertIn('try applyLatest()', callback)
+        self.assertIn('NotificationCenter.default.addObserver', body)
+        self.assertIn('NSWorkspace.didWakeNotification', body)
+
+    def test_native_event_lock_protocol_covers_resolve_apply_not_resident_lifetime(self):
+        # Native source contract plus test_pipeline's deterministic POSIX interleaving;
+        # neither is macOS compilation or real AppKit execution.
+        source = (support.ROOT / 'macos/Sources/paperdrop-set/main.swift').read_text()
+        self.assertIn('func withUpdateLock(', source)
+        lock = source.split('func withUpdateLock(', 1)[1].split('func watch(', 1)[0]
+        self.assertIn('Darwin.flock(fd, LOCK_EX)', lock)
+        self.assertIn('Darwin.flock(fd, LOCK_UN)', lock)
+        self.assertIn('defer', lock)
+        watch = source.split('func watch(', 1)[1].split('func run()', 1)[0]
+        self.assertIn('withUpdateLock(lockPath)', watch)
+        self.assertIn('try applyImage(resolve(), fill: fill)', watch)
+        self.assertIn('try applyLatest()', watch.split('let reapply:', 1)[1])
+        self.assertIn('RunLoop.main.run()', watch)
+        self.assertIn('arguments.firstIndex(of: "--lock-file")', source)
+        apply = source.split('case "apply":', 1)[1].split('case "current":', 1)[0]
+        self.assertNotIn('withUpdateLock', apply, 'Python already holds the lock during helper apply')
+
+    def test_watch_passes_custom_config_lock_path_to_native_helper(self):
+        import inspect
+        from paperdrop.cache import Cache
+        platform, paths = self.build(state_file=str(self.home / 'custom-state' / 'run.json'))
+        self.assertIn('lock_file', inspect.signature(platform.watch).parameters)
+        image = Cache(self.home / 'cache').publish(b'A', '.jpg')
+        with patch.object(platform, 'helper', return_value='/fake/paperdrop-set'), \
+                patch('paperdrop.platforms.macos.subprocess.call', return_value=0) as call:
+            self.assertEqual(platform.watch(image, lock_file=paths.lock_file), 0)
+        self.assertEqual(call.call_args[0][0], ['/fake/paperdrop-set', 'watch-cache',
+                         str(image.parent), '--lock-file', str(paths.lock_file)])
+
+    def test_native_index_validates_regular_roles_and_selects_confirmed_active(self):
+        # Source contract only; compilation/AppKit acceptance remains pending.
+        source = (support.ROOT / 'macos/Sources/paperdrop-set/main.swift').read_text()
+        self.assertIn('func checkedImagePath(', source)
+        self.assertIn('attributesOfItem(atPath:', source)
+        self.assertIn('FileAttributeType.typeRegular', source)
+        self.assertIn('container.contains(.active)', source,
+                      'explicit null active must not fall back to an unconfirmed candidate')
+        resolver = source.split('func cachedImagePath(', 1)[1].split('func watch(', 1)[0]
+        self.assertIn('[index.current, index.previous, index.active]', resolver)
+        self.assertIn('checkedImagePath(', resolver)
+        self.assertIn('let name = index.active', resolver)
+
     def test_install_writes_both_agents_with_daily_trigger_and_catch_up(self):
         platform, paths = self.build()
         with patch('paperdrop.platforms.macos.shutil.which', return_value='/usr/bin/launchctl'):

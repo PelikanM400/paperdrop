@@ -6,9 +6,11 @@ import json
 import pathlib
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import support
 
+from paperdrop import state as state_module
 from paperdrop.cache import Cache
 from paperdrop.errors import FetchError, PlatformError
 from paperdrop.fetch import Response
@@ -20,6 +22,22 @@ from paperdrop.util import sha256_hex
 MANIFEST_URL = 'https://example.test/desk.json'
 IMAGE_URL = 'https://example.test/commit/desk.jpg'
 NOW = datetime.datetime(2030, 1, 2, 4, 30, tzinfo=datetime.timezone.utc)
+
+
+class PathCachingDesktop(support.FakePlatform):
+    """A deterministic model of AppKit's same-URL/different-bytes hazard."""
+    def __init__(self):
+        super().__init__()
+        self.pixels_by_path = {}
+        self.visible = None
+
+    def apply(self, image_path):
+        result = super().apply(image_path)
+        path = str(image_path)
+        if path not in self.pixels_by_path:
+            self.pixels_by_path[path] = pathlib.Path(path).read_bytes()
+        self.visible = self.pixels_by_path[path]
+        return result
 
 
 class PipelineTests(unittest.TestCase):
@@ -48,6 +66,118 @@ class PipelineTests(unittest.TestCase):
         kwargs.setdefault('logger', self.logger)
         kwargs.setdefault('sleep', lambda seconds: None)   # tests never really wait
         return run_once(config, paths, platform, fetcher=fetcher, **kwargs), platform
+
+    def test_the_original_error_survives_a_failed_failure_record(self):
+        """A state-write error while reporting a failure must not replace it."""
+        config, paths, fetcher = self.build()
+        platform = support.FakePlatform()
+        first, _ = self.run_once(config, paths, fetcher, platform=platform)
+        self.assertEqual(first.outcome, 'updated')
+
+        other = support.make_image((640, 360), color='blue')
+        fetcher.responses[MANIFEST_URL] = Response(
+            url=MANIFEST_URL, status=200,
+            data=support.manifest_for(other, image_url=IMAGE_URL, width=640, height=360),
+            headers={'Content-Type': 'application/json'})
+        fetcher.responses[IMAGE_URL] = Response(url=IMAGE_URL, status=200, data=other)
+
+        real_write_json = state_module.write_json
+        writes = []
+
+        def flaky_write_json(path, payload):
+            writes.append(path)
+            if len(writes) == 1:
+                raise OSError('SECONDARY failure-record write')
+            return real_write_json(path, payload)
+
+        with patch.object(Cache, '_store', side_effect=OSError('PRIMARY image store error')):
+            with patch.object(state_module, 'write_json', side_effect=flaky_write_json):
+                second, _ = self.run_once(config, paths, fetcher, platform=platform, force=True)
+
+        self.assertEqual(second.outcome, 'failed')
+        self.assertIn('PRIMARY', second.detail)
+        attempt = State(paths.state_file).load().last_attempt
+        self.assertIn('PRIMARY', attempt['reason'],
+                      'the persisted reason must name the real failure, not the reporting error')
+
+    def test_changed_bytes_use_a_new_path_on_a_path_caching_desktop(self):
+        """Model pathname-cached pixels, not actual macOS visual confirmation."""
+        config, paths, fetcher = self.build()
+        platform = PathCachingDesktop()
+        first, _ = self.run_once(config, paths, fetcher, platform=platform)
+        other = support.make_image((640, 360), color='blue')
+        fetcher.responses[MANIFEST_URL] = Response(
+            url=MANIFEST_URL, status=200,
+            data=support.manifest_for(other, image_url=IMAGE_URL, width=640, height=360),
+            headers={'Content-Type': 'application/json'})
+        fetcher.responses[IMAGE_URL] = Response(url=IMAGE_URL, status=200, data=other)
+        second, _ = self.run_once(config, paths, fetcher, platform=platform, force=True)
+        self.assertTrue(first.ok and second.ok)
+        self.assertEqual(platform.visible, other, 'same pathname leaves the old pixels visible')
+        self.assertNotEqual(first.cache_path, second.cache_path)
+        self.assertEqual(pathlib.Path(first.cache_path).read_bytes(), self.image,
+                         'demoting a role must not rename or mutate its image URL')
+
+    def test_upgrade_repairs_a_same_day_fixed_path_false_success_offline(self):
+        for check_only in (False, True):
+            with self.subTest(check_only=check_only):
+                config, paths, fetcher = self.build()
+                cache = Cache(paths.cache_dir)
+                cache.clear()
+                cache.ensure()
+                legacy = cache.directory / 'current.jpg'
+                older = support.make_image((640, 360), color='green')
+                legacy.write_bytes(older)
+                (cache.directory / 'previous.jpg').write_bytes(older)
+                platform = PathCachingDesktop()
+                platform.apply(legacy)
+                # v0.1.6 replaced the bytes, but kept the same AppKit URL.
+                legacy.write_bytes(self.image)
+                State(paths.state_file).record_success(
+                    identity=sha256_hex(self.image), image_sha256=sha256_hex(self.image),
+                    cache_path=str(legacy), source_url=MANIFEST_URL, mode='manifest',
+                    local_date=NOW.date().isoformat())
+                result, _ = self.run_once(config, paths, fetcher, platform=platform,
+                                          check_only=check_only)
+                self.assertEqual(platform.visible, self.image)
+                self.assertEqual(result.outcome, 'reapplied')
+                self.assertEqual(fetcher.requests, [])
+                self.assertFalse(legacy.exists())
+                self.assertEqual(cache.previous().read_bytes(), older)
+                self.assertEqual(cache.current().read_bytes(), self.image)
+                self.assertEqual(State(paths.state_file).load().last_success['cache_path'],
+                                 str(cache.current()))
+                before = platform.apply_calls
+                again, _ = self.run_once(config, paths, fetcher, platform=platform,
+                                         check_only=check_only)
+                self.assertEqual(again.outcome, 'unchanged')
+                self.assertEqual(platform.apply_calls, before)
+                self.assertEqual(State(paths.state_file).load().last_attempt['outcome'],
+                                 'unchanged')
+
+    def test_upgrade_apply_rejection_is_a_recorded_failure_not_an_exception(self):
+        config, paths, fetcher = self.build()
+        cache = Cache(paths.cache_dir)
+        cache.ensure()
+        legacy = cache.directory / 'current.jpg'
+        legacy.write_bytes(self.image)
+        State(paths.state_file).record_success(
+            identity=sha256_hex(self.image), image_sha256=sha256_hex(self.image),
+            cache_path=str(legacy), source_url=MANIFEST_URL, mode='manifest',
+            local_date=NOW.date().isoformat())
+        platform = support.FakePlatform(reports=str(legacy))
+        platform.fail_with = PlatformError('AppKit rejected repair')
+        try:
+            result, _ = self.run_once(config, paths, fetcher, platform=platform, check_only=True)
+        except PlatformError as error:
+            self.fail('upgrade repair must record its failed attempt: %s' % error)
+        self.assertEqual(result.outcome, 'failed')
+        self.assertEqual(fetcher.requests, [])
+        self.assertEqual(cache.current().read_bytes(), self.image)
+        state = State(paths.state_file).load()
+        self.assertFalse(state.last_attempt['ok'])
+        self.assertEqual(state.last_success['cache_path'], str(legacy))
+        self.assertEqual(platform.current(), str(legacy))
 
     def test_a_desktop_that_reports_the_old_image_is_retried(self):
         """The confirmation must not give up on the first stale read."""
@@ -225,6 +355,172 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(Cache(paths.cache_dir).current().read_bytes(), previous)
         self.assertEqual(platform.apply_calls, 1)
 
+    def test_repeated_apply_failures_keep_the_old_wallpaper_file(self):
+        config, paths, fetcher = self.build()
+        platform = PathCachingDesktop()
+        first, _ = self.run_once(config, paths, fetcher, platform=platform)
+        original = pathlib.Path(first.cache_path)
+        for color in ('blue', 'green'):
+            other = support.make_image((640, 360), color=color)
+            fetcher.responses[MANIFEST_URL] = Response(
+                url=MANIFEST_URL, status=200,
+                data=support.manifest_for(other, image_url=IMAGE_URL, width=640, height=360),
+                headers={'Content-Type': 'application/json'})
+            fetcher.responses[IMAGE_URL] = Response(url=IMAGE_URL, status=200, data=other)
+            platform.fail_with = PlatformError('AppKit rejected the new image')
+            result, _ = self.run_once(config, paths, fetcher, platform=platform, force=True)
+            self.assertEqual(result.outcome, 'failed')
+            self.assertEqual(platform.visible, self.image)
+            self.assertTrue(original.exists(), 'failed updates must not prune the active URL')
+            self.assertEqual(Cache(paths.cache_dir).current(), original)
+            self.assertEqual(State(paths.state_file).load().last_success['cache_path'],
+                             str(original))
+            self.assertEqual(len(list(paths.cache_dir.glob('image-*'))), 2)
+
+    def test_active_url_survives_failed_cleanup_or_rollback_then_next_publication(self):
+        from unittest.mock import patch
+        import paperdrop.cache as cache_module
+        real_write = cache_module.atomic_write
+        real_unlink = pathlib.Path.unlink
+        for failure in ('postcommit-cleanup', 'rollback-index'):
+            with self.subTest(failure=failure):
+                self.root = pathlib.Path(self.directory.name) / failure
+                self.root.mkdir()
+                config, paths, fetcher = self.build()
+                platform = PathCachingDesktop()
+                first, _ = self.run_once(config, paths, fetcher, platform=platform)
+                active = pathlib.Path(first.cache_path)
+                orphan = paths.cache_dir / 'cleanup-failure.jpg'
+                committed = []
+                injected = []
+
+                def write(path, data, **kwargs):
+                    if pathlib.Path(path).name == Cache.INDEX:
+                        value = json.loads(data)
+                        if value['current'] != active.name:
+                            committed.append(value)
+                            if failure == 'postcommit-cleanup':
+                                orphan.write_bytes(b'cleanup')
+                        elif committed and failure == 'rollback-index':
+                            injected.append(failure)
+                            raise OSError('injected rollback index failure')
+                    return real_write(path, data, **kwargs)
+
+                def unlink(path, **kwargs):
+                    if path == orphan and committed:
+                        injected.append(failure)
+                        raise OSError('injected postcommit cleanup failure')
+                    return real_unlink(path, **kwargs)
+
+                for color in ('blue', 'green'):
+                    image = support.make_image((640, 360), color=color)
+                    fetcher.responses[MANIFEST_URL] = Response(
+                        url=MANIFEST_URL, status=200,
+                        data=support.manifest_for(image, image_url=IMAGE_URL,
+                                                  width=640, height=360))
+                    fetcher.responses[IMAGE_URL] = Response(url=IMAGE_URL, status=200, data=image)
+                    platform.fail_with = PlatformError('injected apply rejection')
+                    # The first failure is inside real publication/rollback FS IO.
+                    # The next run creates a fresh Cache and publishes another candidate.
+                    if color == 'blue':
+                        def get(url, **kwargs):
+                            response = original_get(url, **kwargs)
+                            if url == IMAGE_URL and failure == 'postcommit-cleanup':
+                                orphan.write_bytes(b'cleanup')
+                            return response
+                        original_get = fetcher.get
+                        with patch.object(fetcher, 'get', side_effect=get), \
+                                patch('paperdrop.cache.atomic_write', side_effect=write), \
+                                patch.object(pathlib.Path, 'unlink', unlink):
+                            try:
+                                result, _ = self.run_once(config, paths, fetcher,
+                                                          platform=platform, force=True)
+                            except OSError as error:
+                                self.fail('filesystem failure must return a failed attempt: %s' % error)
+                    else:
+                        result, _ = self.run_once(config, paths, fetcher,
+                                                  platform=platform, force=True)
+                    self.assertEqual(result.exit_code, 1)
+                    self.assertEqual(platform.visible, self.image)
+                    self.assertTrue(active.exists(),
+                                    'the next publication must not prune the still-visible A URL')
+                    self.assertEqual(active.read_bytes(), self.image,
+                                     'a subsequent failed candidate must not evict confirmed A')
+                    self.assertEqual(State(paths.state_file).load().last_success['cache_path'],
+                                     str(active))
+                    self.assertFalse(State(paths.state_file).load().last_attempt['ok'])
+                self.assertIn(failure, injected, 'must exercise the real injected filesystem failure')
+                self.assertEqual(Cache(paths.cache_dir).current(), active)
+                self.assertEqual(len(list(paths.cache_dir.glob('image-*'))), 2)
+                platform.fail_with = None
+                final, _ = self.run_once(config, paths, fetcher, platform=platform, force=True)
+                self.assertEqual(final.exit_code, 0)
+                self.assertTrue(active.exists())
+                self.assertEqual(Cache(paths.cache_dir).previous(), active)
+
+    def test_filesystem_failures_record_original_error_even_when_cleanup_fails(self):
+        import os
+        from unittest.mock import patch
+        real_replace, real_link, real_unlink = os.replace, os.link, pathlib.Path.unlink
+        for boundary in ('staging', 'link', 'index', 'migration', 'apply'):
+            with self.subTest(boundary=boundary):
+                self.root = pathlib.Path(self.directory.name) / boundary
+                self.root.mkdir()
+                config, paths, fetcher = self.build()
+                platform = PathCachingDesktop()
+                first, _ = self.run_once(config, paths, fetcher, platform=platform)
+                active = pathlib.Path(first.cache_path)
+                if boundary == 'migration':
+                    Cache(paths.cache_dir).clear()
+                    active = paths.cache_dir / 'current.jpg'
+                    active.write_bytes(self.image)
+                image = support.make_image((640, 360), color='blue')
+                fetcher.responses[MANIFEST_URL] = Response(
+                    url=MANIFEST_URL, status=200,
+                    data=support.manifest_for(image, image_url=IMAGE_URL, width=640, height=360))
+                fetcher.responses[IMAGE_URL] = Response(url=IMAGE_URL, status=200, data=image)
+                orphan = paths.cache_dir / 'secondary-cleanup.jpg'
+                triggered = []
+                primary = 'injected %s filesystem error' % boundary
+
+                def replace(src, dst):
+                    dst = pathlib.Path(dst)
+                    if ((boundary == 'staging' and dst.name.startswith('.incoming-'))
+                            or (boundary == 'index' and dst.name == Cache.INDEX)):
+                        triggered.append(True)
+                        orphan.write_bytes(b'orphan')
+                        raise OSError(primary)
+                    return real_replace(src, dst)
+
+                def link(src, dst):
+                    if boundary in ('link', 'migration'):
+                        triggered.append(True)
+                        orphan.write_bytes(b'orphan')
+                        raise OSError(primary)
+                    return real_link(src, dst)
+
+                def unlink(path, **kwargs):
+                    if triggered and (path == orphan or path.name.startswith('.incoming-')
+                                      or '.tmp-' in path.name):
+                        raise OSError('secondary cleanup error')
+                    return real_unlink(path, **kwargs)
+
+                if boundary == 'apply':
+                    platform.fail_with = OSError(primary)
+                with patch('os.replace', side_effect=replace), patch('os.link', side_effect=link), \
+                        patch.object(pathlib.Path, 'unlink', unlink):
+                    try:
+                        result, _ = self.run_once(config, paths, fetcher, platform=platform, force=True)
+                    except OSError as error:
+                        self.fail('expected a recorded failure, not raw OSError: %s' % error)
+                self.assertEqual(result.exit_code, 1)
+                self.assertIn(primary, result.detail)
+                state = State(paths.state_file).load()
+                self.assertFalse(state.last_attempt['ok'])
+                self.assertIn(primary, state.last_attempt['reason'])
+                self.assertEqual(state.last_success['cache_path'], first.cache_path)
+                self.assertEqual(active.read_bytes(), self.image)
+
     def test_desktop_failure_is_reported_and_not_recorded_as_success(self):
         config, paths, fetcher = self.build()
         platform = support.FakePlatform()
@@ -255,6 +551,46 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(platform.applied, [])
 
     # --- cheap check mode ---------------------------------------------------
+    def test_ordinary_same_day_desktop_drift_is_repaired_offline_with_bounded_confirmation(self):
+        from unittest.mock import patch
+        for outcome in ('delayed-confirmation', 'rejected', 'never-confirmed'):
+            with self.subTest(outcome=outcome):
+                self.root = pathlib.Path(self.directory.name) / outcome
+                self.root.mkdir()
+                config, paths, fetcher = self.build()
+                first, _ = self.run_once(config, paths, fetcher)
+                before = State(paths.state_file).load().last_success
+                fetcher.requests.clear()
+                if outcome == 'delayed-confirmation':
+                    platform = support.SlowReportingPlatform(lag=2)
+                else:
+                    platform = support.FakePlatform(apply_effective=outcome != 'never-confirmed')
+                platform.reports = '/user-changed-wallpaper.jpg'
+                if outcome == 'rejected':
+                    platform.fail_with = PlatformError('offline repair rejected')
+                waited = []
+                with patch('paperdrop.pipeline.resolve_source',
+                           side_effect=AssertionError('same-day repair must not resolve/fetch')), \
+                        patch.object(platform, 'current', wraps=platform.current) as current:
+                    result, _ = self.run_once(config, paths, fetcher, platform=platform,
+                                              sleep=waited.append)
+                self.assertEqual(fetcher.requests, [])
+                self.assertEqual(platform.apply_calls, 1)
+                self.assertLessEqual(current.call_count, 1 + config['apply']['confirm_attempts'])
+                self.assertLessEqual(len(waited), config['apply']['confirm_attempts'] - 1)
+                state = State(paths.state_file).load()
+                if outcome == 'delayed-confirmation':
+                    self.assertEqual(result.outcome, 'reapplied')
+                    self.assertEqual(state.last_success['cache_path'], first.cache_path)
+                    self.assertEqual(state.last_success['checks'], ['reapplied'])
+                    self.assertTrue(state.last_attempt['ok'])
+                    self.assertEqual(len(waited), 2)
+                else:
+                    self.assertEqual(result.exit_code, 1)
+                    self.assertEqual(state.last_success, before)
+                    self.assertFalse(state.last_attempt['ok'])
+                self.assertEqual(Cache(paths.cache_dir).current().read_bytes(), self.image)
+
     def test_check_mode_repairs_the_desktop_from_the_cache_without_downloading(self):
         config, paths, fetcher = self.build()
         self.run_once(config, paths, fetcher)
@@ -287,6 +623,140 @@ class PipelineTests(unittest.TestCase):
         result, _ = self.run_once(config, paths, fetcher, platform=platform, check_only=True)
         self.assertEqual(fetcher.requests, [], 'check mode must stay offline')
         self.assertEqual(result.outcome, 'unchanged')
+
+    def test_check_rejects_missing_or_symlink_current_without_deleting_recoverable_data(self):
+        for kind in ('missing', 'symlink'):
+            with self.subTest(kind=kind):
+                self.root = pathlib.Path(self.directory.name) / kind
+                self.root.mkdir()
+                config, paths, fetcher = self.build()
+                cache = Cache(paths.cache_dir)
+                recoverable = cache.publish(self.image, '.jpg')
+                bad = cache.directory / ('image-' + '0' * 64 + '.jpg')
+                if kind == 'symlink':
+                    bad.symlink_to(recoverable)
+                (cache.directory / Cache.INDEX).write_text(json.dumps(
+                    {'version': 1, 'current': bad.name, 'previous': None}))
+                before = set(cache.directory.iterdir())
+                result, platform = self.run_once(config, paths, fetcher, check_only=True)
+                self.assertEqual(result.exit_code, 1, 'must not report unchanged for an invalid URL')
+                self.assertEqual(set(cache.directory.iterdir()), before)
+                self.assertEqual(recoverable.read_bytes(), self.image)
+                self.assertEqual(fetcher.requests, [])
+                self.assertEqual(platform.applied, [])
+                state = State(paths.state_file).load()
+                self.assertIsNone(state.last_success)
+                self.assertFalse(state.last_attempt['ok'])
+
+    def test_watcher_flock_and_cli_update_cannot_restore_a_stale_resolved_url(self):
+        import argparse
+        import fcntl
+        import threading
+        from unittest.mock import patch
+        from paperdrop.cli import _run
+        config, paths, fetcher = self.build()
+        platform = PathCachingDesktop()
+        first, _ = self.run_once(config, paths, fetcher, platform=platform)
+        active = pathlib.Path(first.cache_path)
+        args = argparse.Namespace(force=True, check=False, json=False)
+        errors = []
+
+        def callback(resolved, proceed, contended):
+            # Deterministic POSIX model of the Swift event's resolve+apply lock.
+            try:
+                with open(paths.lock_file, 'a+') as handle:
+                    try:
+                        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        contended.set()
+                        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                    path = Cache(paths.cache_dir)._roles()[Cache.ACTIVE]
+                    resolved.set()
+                    if not proceed.wait(5):
+                        raise AssertionError('callback release timed out')
+                    platform.apply(path)
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            except BaseException as error:
+                errors.append(error)
+
+        resolved, proceed, contended = (threading.Event() for _ in range(3))
+        worker = threading.Thread(target=callback, args=(resolved, proceed, contended))
+        worker.start()
+        self.addCleanup(lambda: (proceed.set(), worker.join(5)))
+        self.assertTrue(resolved.wait(5))
+        image = support.make_image((640, 360), color='blue')
+        fetcher.responses[MANIFEST_URL] = Response(
+            url=MANIFEST_URL, status=200,
+            data=support.manifest_for(image, image_url=IMAGE_URL, width=640, height=360))
+        fetcher.responses[IMAGE_URL] = Response(url=IMAGE_URL, status=200, data=image)
+        with patch('paperdrop.cli._platform', return_value=platform), \
+                patch('paperdrop.cli.LOG', self.logger), \
+                patch('paperdrop.pipeline.Fetcher.from_config', return_value=fetcher), \
+                patch('paperdrop.cli._print'):
+            before = len(fetcher.requests)
+            self.assertEqual(_run(args, config, paths), 0)  # busy, not a publication
+            self.assertEqual(len(fetcher.requests), before)
+            self.assertEqual(Cache(paths.cache_dir).current(), active)
+            proceed.set()
+            worker.join(5)
+            self.assertFalse(worker.is_alive())
+
+            entered, release = threading.Event(), threading.Event()
+            original_apply = platform.apply
+            def paused_apply(path):
+                if pathlib.Path(path) != active:
+                    entered.set()
+                    if not release.wait(5):
+                        raise AssertionError('updater release timed out')
+                return original_apply(path)
+            update_result = []
+            def update():
+                try:
+                    update_result.append(_run(args, config, paths))
+                except BaseException as error:
+                    errors.append(error)
+            with patch.object(platform, 'apply', side_effect=paused_apply):
+                updater = threading.Thread(target=update)
+                updater.start()
+                self.addCleanup(lambda: (release.set(), updater.join(5)))
+                self.assertTrue(entered.wait(5))
+                resolved2, proceed2, contended2 = (threading.Event() for _ in range(3))
+                proceed2.set()
+                waiter = threading.Thread(target=callback, args=(resolved2, proceed2, contended2))
+                waiter.start()
+                self.addCleanup(lambda: (release.set(), waiter.join(5)))
+                self.assertTrue(contended2.wait(5))
+                self.assertFalse(resolved2.is_set(), 'must resolve only after the update finishes')
+                release.set()
+                updater.join(5)
+                waiter.join(5)
+                self.assertFalse(updater.is_alive() or waiter.is_alive())
+            self.assertEqual(update_result, [0])
+        self.assertEqual(errors, [])
+        self.assertTrue(resolved2.is_set())
+        self.assertEqual(platform.visible, image)
+        self.assertEqual(platform.current(), str(Cache(paths.cache_dir).current()))
+        self.assertEqual(active.read_bytes(), self.image)
+
+    def test_offline_apply_does_not_migrate_or_prune_during_an_update(self):
+        from paperdrop.errors import BusyError
+        from paperdrop.lock import FileLock
+        config, paths, fetcher = self.build()
+        cache = Cache(paths.cache_dir)
+        cache.ensure()
+        legacy = cache.directory / 'current.jpg'
+        legacy.write_bytes(self.image)
+        platform = support.FakePlatform()
+        with FileLock(paths.lock_file):
+            with self.assertRaises(BusyError):
+                apply_cached(config, paths, platform, logger=self.logger)
+            self.assertTrue(legacy.exists())
+            self.assertFalse((cache.directory / Cache.INDEX).exists())
+            self.assertEqual(platform.applied, [])
+        self.assertEqual(apply_cached(config, paths, platform, logger=self.logger), cache.current())
+        # The offline apply releases the lock; a resident watch never owns it.
+        with FileLock(paths.lock_file):
+            pass
 
     def test_apply_cached_works_without_any_network_access(self):
         config, paths, fetcher = self.build()

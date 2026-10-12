@@ -7,6 +7,11 @@
 > the LaunchAgent runs and records each run. Still unverified: the calendar
 > trigger firing at its time on its own, and the catch-up paths (see the
 > checklist at the end).
+>
+> **Unreleased cache/watcher fix:** the previous real-Mac checks above do not
+> verify this new implementation. Linux tests model pathname-cached pixels and
+> check Swift source contracts; the updated helper still needs macOS compilation
+> and visual wake/display verification.
 
 ## Requirements
 
@@ -58,7 +63,7 @@ Quick manual check (safe — it only touches your wallpaper):
 
 ```bash
 ./paperdrop-set screens
-./paperdrop-set apply "$HOME/.cache/paperdrop/current.jpg" --fill   # after a first run
+paperdrop apply-cached   # after a first run; resolves the immutable current image
 ./paperdrop-set current
 ```
 
@@ -96,8 +101,10 @@ not wake the machine to run the job. So the daily agent carries a second trigger
 default). After the Mac wakes, the daily run happens within that interval.
 
 Those extra runs are cheap on purpose: when today has already succeeded from the
-same source, PaperDrop reads its state and the current wallpaper and exits — no
-network request and no re-applying. Set `catch_up_interval_minutes` to `0` if you
+same source, PaperDrop reads its state and the current wallpaper — no network
+request. If the desktop still matches it exits without re-applying; desktop drift
+is repaired from the verified cache with bounded confirmation. Set
+`catch_up_interval_minutes` to `0` if you
 would rather have only the exact daily time plus the login run.
 
 Two consequences worth knowing:
@@ -142,6 +149,87 @@ paperdrop pause             # stop the schedule (unloads both agents)
 paperdrop resume
 paperdrop apply-cached      # put the cached image back, no network
 ```
+
+## Upgrading from v0.1.6 fixed-path caches
+
+This fix ships in **v0.1.7 (pre-release)**. Update Python and the native helper
+together in the logged-in Mac session. For copy-and-paste release-asset steps,
+see `upgrade-0.1.7-zh.md`; the source-checkout alternative is:
+
+```bash
+paperdrop pause                       # stops the old resident helper and schedule
+cd /path/to/reviewed/paperdrop
+pipx install --force .                # if the existing install uses pipx
+bash macos/build.sh --install
+paperdrop doctor                     # check the helper actually selected by the config/PATH
+paperdrop run --check                 # offline; repairs a matching same-day legacy success
+paperdrop apply-cached                # offline apply even if the saved success is older
+paperdrop install                    # regenerate/reload agents with the upgraded Python install
+paperdrop status --json
+```
+
+For a venv install use that environment's `pip install .` instead of pipx. If
+`apply.helper_path` or a binary earlier on `PATH` overrides the installed helper,
+replace that selected binary with the newly built one too. The old binary does
+not understand `watch-cache`; merely installing Python is insufficient. Do not
+purge the cache or delete `state.json` to work around this bug.
+
+Migration hashes both legacy `current.*` / `previous.*` files, creates same-
+filesystem hard links named `image-<sha256>.<extension>`, then atomically publishes
+`images.json` containing both role filenames. The legacy names remain until the
+index commits. A failed index write leaves both legacy files readable; after a
+successful commit only the indexed images and index remain. Existing bytes are
+not re-encoded. Role changes never rename an image file. Repeating identical
+bytes reuses the same retained URL; publishing distinct bytes uses another URL.
+Private staging can temporarily consume extra space. The next Python cache
+operation prunes unindexed images left by an interrupted publication.
+
+A same-day success with a legacy `cache_path` cannot prove visible pixels are
+current. When the current bytes match its saved SHA-256, `run` and `run --check`
+apply the new immutable URL without fetching, confirm the reported path and save
+that new path only on success. Subsequent same-day checks remain no-ops and still
+record `last check`. On rejection/failed confirmation the old current image file
+remains retained; confirmed success is not falsely recorded. The atomic index's
+`active` filename advances only after desktop confirmation, separate from a new
+`current` candidate. If cleanup or rollback fails, the watcher still chooses the
+confirmed active URL; Python restores that role before the next publication or
+pruning. Missing/non-regular/symlink role targets fail closed without pruning
+recoverable files. Failed cleanup can temporarily leave extra files until a
+successful recovery. Ordinary same-day desktop drift also uses this offline
+repair path. AppKit applies per
+screen, so an error can still mean some screens changed — there is no atomic
+multi-display visual rollback guarantee.
+
+The resident helper receives the **cache directory** and re-reads the atomic
+index at startup and every screen-change/wake callback. Python passes the exact
+configured state-directory lock as `--lock-file`; each native event holds that
+same flock only while resolving and applying, then releases it before returning
+to the resident run loop. A callback waiting for an update resolves **after** the
+update finishes, so it cannot restore a stale captured URL. Direct helper
+`apply`/`current` calls do not acquire this lock again (Python already owns it).
+The helper does not download. Legacy `watch <file>` also follows a migrated
+index and now requires the explicit `--lock-file` argument.
+
+### Required Mac acceptance for the v0.1.7 fix
+
+- [ ] Recompile with the local Swift SDK; verify the selected helper recognizes
+      `watch-cache` and the restarted LaunchAgent stays running.
+- [ ] Upgrade with both legacy cached images present and a same-day recorded
+      success. Confirm the SHA-256 of both migrated images is unchanged, the
+      reported current URL is content-addressed, and **visually** confirm the
+      new photo on both screens/all Spaces. Previewing the cache is not proof.
+- [ ] With two different valid landscape images A and B in an isolated test
+      config, apply A, leave the watcher resident, then update to B. Verify the
+      URLs differ and A's retained bytes/name do not change. Reconnect the display
+      and sleep/wake: both must keep B, never restore the startup image A.
+- [ ] Repeat the same image: no new image data/URL and no needless same-day apply.
+      After A→B→C only current and previous image data remain (plus the index).
+- [ ] Simulate a rejected update in a test environment: preserve the old active
+      file and no false `last ok`. Check for partial multi-screen changes.
+
+Linux tests exercise a pathname-caching desktop model and actual Python cache/
+state transitions. Adapter argv and Swift source contracts are checked, but
+**none of those substitute for compilation, AppKit callbacks or visual proof**.
 
 ## 6. Uninstall
 

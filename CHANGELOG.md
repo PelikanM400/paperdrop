@@ -6,6 +6,51 @@ All notable changes to PaperDrop are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.7] — 2026-10-12
+
+Still a pre-release: Python regressions are exercised off-device; the updated
+Swift helper requires local compilation and real-Mac visual acceptance.
+
+### Fixed
+- macOS could keep showing old pixels after `current.jpg` was replaced, even
+  while AppKit reported that same pathname as current. Verified images now use
+  immutable `image-<sha256>.<extension>` URLs with an atomic current/previous
+  index; changing roles never renames image files. Only two images are retained
+  after publication/recovery (private staging can temporarily use extra space).
+- Existing v0.1.6 current/previous images migrate without downloading or changing
+  their bytes. A same-day success recorded against a legacy fixed path forces
+  one offline repair, including `run --check`, rather than repeating false success.
+- The resident macOS helper reads the latest current index on every wake/display
+  event, instead of capturing its startup image. Display notifications use the
+  application notification center; wake notifications use the workspace center.
+- Rejected/unconfirmed updates keep the old current image URL retained, including
+  repeated failures and failed cleanup/rollback writes. The index separately
+  retains the confirmed active URL; candidates cannot advance it until desktop
+  confirmation. Cache IO failures record a failed attempt without hiding the
+  original error behind a second cleanup failure.
+- Cache role targets must exist as regular non-symlink files before any pruning;
+  invalid targets fail closed without removing recoverable images.
+- A legacy fixed-name entry (`current.*` / `previous.*`) that is a symlink or a
+  directory instead of a regular file is now a hard error: nothing is migrated
+  and nothing is pruned around it, so the image such an entry points at can no
+  longer be deleted by the migration.
+- A failure while writing the failure record no longer replaces the real error:
+  the write is retried once carrying the original reason, which is kept in both
+  the reported detail and the persisted `last_attempt`.
+- Native resolve/apply callbacks take the exact configured updater flock for
+  each event, not for the resident lifetime; waiting callbacks resolve afresh.
+- Ordinary same-day desktop drift is repaired offline with bounded confirmation,
+  without resolving or downloading the source.
+- The source release includes the Swift helper, build script, upgrade guide and
+  test fixtures. Release-archive acceptance checks these files before publishing.
+
+### Upgrade / verification
+- Rebuild and install the Swift helper and restart the resident watcher along
+  with upgrading Python; the previous helper lacks the new `watch-cache` command.
+- Path-caching desktop model, migration, pruning, failure and adapter tests run
+  offline. Swift source assertions are **not** compilation, AppKit execution or
+  visual proof. This change still needs macOS compilation and real-device checks.
+
 ## [0.1.6] — 2026-10-11
 
 **Critical: the daily schedule never ran, on either platform.**

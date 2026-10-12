@@ -35,12 +35,18 @@ def atomic_write(path, data, mode=0o644):
             stream.flush()
             os.fsync(stream.fileno())
     except BaseException:
-        temp.unlink(missing_ok=True)
+        try:
+            temp.unlink(missing_ok=True)
+        except OSError:
+            pass  # Cleanup must not hide the failed write/replace.
         raise
     try:
         os.replace(str(temp), str(path))
     except BaseException:
-        temp.unlink(missing_ok=True)
+        try:
+            temp.unlink(missing_ok=True)
+        except OSError:
+            pass  # Cleanup must not hide the failed write/replace.
         raise
     return path
 

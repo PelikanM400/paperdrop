@@ -85,10 +85,11 @@ class MacOS(Platform):
         result = self._helper('screens')
         return [line for line in (result.stdout or '').splitlines() if line.strip()]
 
-    def watch(self, image_path):
-        """Run the resident helper that reacts to display configuration changes."""
-        path = str(pathlib.Path(image_path))
-        return subprocess.call([self.helper(), 'watch', path], env=dict(self.environ))
+    def watch(self, image_path, lock_file):
+        """Each native resolve/apply event uses the configured updater lock."""
+        directory = str(pathlib.Path(image_path).parent)
+        return subprocess.call([self.helper(), 'watch-cache', directory,
+                                '--lock-file', str(lock_file)], env=dict(self.environ))
 
     # --- scheduling ---------------------------------------------------------
     def _agent_dir(self):

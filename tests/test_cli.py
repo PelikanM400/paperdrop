@@ -87,6 +87,28 @@ class CliTests(unittest.TestCase):
             code = main(['--config', str(self.config_path), *argv])
         return code, out.getvalue(), err.getvalue()
 
+    def test_watch_hands_off_exact_lock_after_offline_apply_releases_it(self):
+        from paperdrop.lock import FileLock
+        from paperdrop.paths import Paths
+        from paperdrop.config import validate
+        from paperdrop.state import State
+        self.write_config()
+        code, _, _ = self.invoke('run', '--json')
+        self.assertEqual(code, 0)
+        config = validate(json.loads(self.config_path.read_text()))
+        paths = Paths.from_config(config, self.config_path)
+        calls = []
+        def watch(path, lock_file=None):
+            self.assertEqual(lock_file, paths.lock_file)
+            with FileLock(lock_file):  # no nested lock/deadlock at resident handoff
+                calls.append(path)
+            return 0
+        self.platform.supports_screen_watch = True
+        self.platform.watch = watch
+        code, _, _ = self.invoke('watch')
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, [pathlib.Path(State(paths.state_file).load().last_success['cache_path'])])
+
     def test_print_example_config_needs_no_config_file(self):
         out = io.StringIO()
         with redirect_stdout(out):
@@ -111,7 +133,7 @@ class CliTests(unittest.TestCase):
         first = json.loads(out)
         self.assertEqual(first['outcome'], 'updated')
         self.assertTrue(first['downloaded'])
-        self.assertEqual((self.root / 'cache' / 'current.jpg').read_bytes(), IMAGE)
+        self.assertEqual(pathlib.Path(first['cache_path']).read_bytes(), IMAGE)
         self.assertEqual(len(self.platform.applied), 1)
 
         code, out, _ = self.invoke('run', '--json')
@@ -164,7 +186,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         payload = json.loads(out)
         self.assertEqual(payload['manifest_consistency'], 'sha256 verified')
-        self.assertTrue(payload['current_image'].endswith('current.jpg'))
+        self.assertTrue(pathlib.Path(payload['current_image']).name == 'image-' + sha256_hex(IMAGE) + '.jpg')
         self.assertEqual(payload['source']['mode'], 'manifest')
 
     def test_status_in_image_mode_says_the_guarantee_is_weak(self):
@@ -194,7 +216,7 @@ class CliTests(unittest.TestCase):
             code, out, _ = self.invoke('uninstall', '--json')
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(out)['purged'], [])
-        self.assertTrue((self.root / 'cache' / 'current.jpg').exists(),
+        self.assertTrue((self.root / 'cache' / ('image-' + sha256_hex(IMAGE) + '.jpg')).exists(),
                         'uninstall must keep the cached wallpaper by default')
 
     def test_uninstall_purge_deletes_the_cache(self):
@@ -204,7 +226,7 @@ class CliTests(unittest.TestCase):
             code, out, _ = self.invoke('uninstall', '--purge', '--json')
         self.assertEqual(code, 0)
         self.assertTrue(json.loads(out)['purged'])
-        self.assertFalse((self.root / 'cache' / 'current.jpg').exists())
+        self.assertFalse((self.root / 'cache' / ('image-' + sha256_hex(IMAGE) + '.jpg')).exists())
 
     def test_doctor_runs_and_reports_each_check(self):
         self.write_config()

@@ -44,7 +44,7 @@ cat <<'EOF'
 
 Smoke test (safe: it applies the current cached image if one exists):
   ./paperdrop-set screens
-  ./paperdrop-set apply "$HOME/.cache/paperdrop/current.jpg" --fill
+  paperdrop apply-cached     # resolves the immutable current image after a first run
   ./paperdrop-set current
 
 If AppKit reports no screens, you are not in a graphical (Aqua) session.

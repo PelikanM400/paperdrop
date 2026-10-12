@@ -21,6 +21,7 @@ from typing import Optional
 from .cache import Cache
 from .errors import PaperDropError
 from .fetch import Fetcher
+from .lock import FileLock
 from .sources import Target, resolve_source
 from .state import State, now_iso
 from .util import sha256_hex
@@ -65,7 +66,7 @@ class RunResult:
 def _display_matches(platform, expected_path):
     try:
         applied = platform.current()
-    except PaperDropError as error:
+    except (OSError, PaperDropError) as error:
         return False, 'could not read the desktop state: %s' % error
     if not applied:
         return False, 'the desktop did not report a wallpaper'
@@ -92,6 +93,24 @@ def _confirm_display(platform, expected_path, attempts, delay, sleep):
     return False, detail
 
 
+def _record_failure(state, reason, logger=None, **fields):
+    """Record a failure without letting a state-write error replace the reason.
+
+    A write to the state file can fail for reasons unrelated to the failure being
+    reported. Retrying once with the *original* reason keeps the real cause (and
+    the reason persisted for the next run); if both writes fail, the secondary
+    error is logged and the original one still propagates to the caller.
+    """
+    for attempt in (1, 2):
+        try:
+            return state.record_failure(reason, **fields)
+        except OSError as error:
+            if attempt == 2:
+                (logger or logging.getLogger(LOGGER_NAME)).warning(
+                    'could not record the failed attempt: %s', error)
+    return None
+
+
 def _cached_sha(path):
     try:
         return sha256_hex(path.read_bytes())
@@ -113,6 +132,11 @@ def _perform_run(config, paths, platform, fetcher=None, now=None, force=False,
     fetcher = fetcher or Fetcher.from_config(config)
     success = state.last_success
     source_url = config['source']['url'].strip()
+    try:
+        cache.migrate()
+    except (OSError, PaperDropError) as error:
+        _record_failure(state, str(error), today=today)
+        return RunResult('failed', str(error))
 
     # --- 1. nothing to do when today already succeeded FROM THE SAME SOURCE ----
     # The shortcut is keyed on the source too: otherwise pointing PaperDrop at a
@@ -123,26 +147,33 @@ def _perform_run(config, paths, platform, fetcher=None, now=None, force=False,
         logger.info('the configured source changed since the last success; '
                     'the same-day shortcut does not apply')
     if not force and same_source and success.get('local_date') == today:
-        cached = pathlib.Path(success.get('cache_path', ''))
-        cached_ok = cached.is_file() and _cached_sha(cached) == success.get('image_sha256')
+        cached = cache.current()
+        cached_ok = (cached is not None and cached.is_file()
+                     and _cached_sha(cached) == success.get('image_sha256'))
+        upgraded_path = cached_ok and str(cached) != success.get('cache_path')
         if cached_ok:
             matches, detail = _display_matches(platform, cached)
-            if matches:
+            if matches and not upgraded_path:
                 return RunResult('unchanged', 'already up to date for %s (%s)' % (today, detail),
                                  identity=success.get('identity', ''), cache_path=str(cached),
                                  checks=['desktop_state'])
-            if check_only:
+            if not matches or upgraded_path:
                 # A cheap repair: put the cached image back. No download, no re-selection.
                 logger.info('desktop state needs repair: %s', detail)
-                platform.apply(cached)
+                try:
+                    platform.apply(cached)
+                except (OSError, PaperDropError) as error:
+                    _record_failure(state, str(error), today=today)
+                    return RunResult('failed', str(error), cache_path=str(cached),
+                                     checks=['desktop_state'])
                 matches, detail = _confirm_display(platform, cached, attempts, delay, sleep)
                 if matches:
-                    state.record_success(**dict(success, finished_at=now_iso(),
+                    state.record_success(**dict(success, cache_path=str(cached), finished_at=now_iso(),
                                                 local_date=today, checks=['reapplied']))
                     return RunResult('reapplied', 're-applied the cached image',
                                      identity=success.get('identity', ''), cache_path=str(cached),
                                      applied=True, checks=['desktop_state', 'reapplied'])
-                state.record_failure('the desktop state could not be confirmed', today=today)
+                _record_failure(state, 'the desktop state could not be confirmed', today=today)
                 return RunResult('failed', 'the cached image was applied but the desktop state '
                                            'could not be confirmed', checks=['desktop_state'])
 
@@ -159,7 +190,7 @@ def _perform_run(config, paths, platform, fetcher=None, now=None, force=False,
     try:
         target = resolve_source(config, fetcher)
     except PaperDropError as error:
-        state.record_failure(str(error), today=today)
+        _record_failure(state, str(error), today=today)
         return RunResult('failed', str(error))
 
     for warning in target.warnings:
@@ -182,26 +213,40 @@ def _perform_run(config, paths, platform, fetcher=None, now=None, force=False,
         else:
             data, image_sha, image_path, downloaded = _fetch_and_publish(
                 config, target, cache, fetcher, state, force, logger)
-    except PaperDropError as error:
-        state.record_failure(str(error), today=today, identity=target.identity)
+    except (OSError, PaperDropError) as error:
+        _record_failure(state, str(error), today=today, identity=target.identity)
         return RunResult('failed', str(error), identity=target.identity,
                          cache_path=str(cached) if cached else '')
 
     # --- 4. apply and confirm -------------------------------------------------
     try:
         platform.apply(image_path)
-    except PaperDropError as error:
-        state.record_failure(str(error), today=today, identity=target.identity)
+    except (OSError, PaperDropError) as error:
+        try:
+            cache.retain_current(cached)
+        except (OSError, PaperDropError) as cleanup_error:
+            logger.warning('cache rollback failed: %s', cleanup_error)
+        _record_failure(state, str(error), today=today, identity=target.identity)
         return RunResult('failed', str(error), identity=target.identity,
                          cache_path=str(image_path), downloaded=downloaded)
     matches, detail = _confirm_display(platform, image_path, attempts, delay, sleep)
     if not matches:
+        try:
+            cache.retain_current(cached)
+        except (OSError, PaperDropError) as cleanup_error:
+            logger.warning('cache rollback failed: %s', cleanup_error)
         reason = ('the image was cached but the desktop state could not be confirmed (%s)'
                   % detail)
-        state.record_failure(reason, today=today, identity=target.identity)
+        _record_failure(state, reason, today=today, identity=target.identity)
         return RunResult('failed', reason,
                          identity=target.identity, cache_path=str(image_path),
                          downloaded=downloaded, applied=False)
+    try:
+        cache.confirm_current(image_path)
+    except (OSError, PaperDropError) as error:
+        _record_failure(state, str(error), today=today, identity=target.identity)
+        return RunResult('failed', str(error), identity=target.identity,
+                         cache_path=str(image_path), downloaded=downloaded)
     recorded = state.record_success(
         identity=target.identity, image_sha256=image_sha, cache_path=str(image_path),
         source_url=target.source_url, mode=target.mode, local_date=today,
@@ -254,20 +299,23 @@ def _fetch_and_publish(config, target, cache, fetcher, state, force, logger):
         max_pixels=config['verify']['max_pixels'])
     logger.info('verified image: %dx%d %s sha256=%s', width, height, image_format, digest[:12])
     extension = extension_for(image_format, url=target.url, content_type=response.content_type)
-    path = cache.publish(response.data, extension)
+    path = cache.publish(response.data, extension, confirmed=False)
     return response.data, digest, path, True
 
 
 def apply_cached(config, paths, platform, logger=None):
     """Apply the cached image without any network access (used by the screen watcher)."""
     logger = logger or logging.getLogger(LOGGER_NAME)
-    cache = Cache(paths.cache_dir)
-    cached = cache.current()
-    if cached is None:
-        raise PaperDropError('No cached image yet; run "paperdrop run" first.')
-    platform.apply(cached)
-    logger.info('applied the cached image %s', cached)
-    return cached
+    # Migration/pruning now writes shared cache state; use the updater's lock.
+    # This short lock ends before CLI watch enters the resident AppKit run loop.
+    with FileLock(paths.lock_file):
+        cache = Cache(paths.cache_dir)
+        cached = cache.migrate()
+        if cached is None:
+            raise PaperDropError('No cached image yet; run "paperdrop run" first.')
+        platform.apply(cached)
+        logger.info('applied the cached image %s', cached)
+        return cached
 
 
 def run_once(config, paths, platform, fetcher=None, now=None, force=False,
@@ -278,10 +326,15 @@ def run_once(config, paths, platform, fetcher=None, now=None, force=False,
     every run leaves a trace, so "did the schedule fire?" is answerable without
     reading a log file.
     """
-    result = _perform_run(config, paths, platform, fetcher=fetcher, now=now, force=force,
-                          check_only=check_only, logger=logger, sleep=sleep)
-    if result.outcome == 'unchanged':
-        State(paths.state_file).load().record_noop('unchanged', result.detail,
-                                                   identity=result.identity,
-                                                   cache_path=result.cache_path)
+    try:
+        result = _perform_run(config, paths, platform, fetcher=fetcher, now=now, force=force,
+                              check_only=check_only, logger=logger, sleep=sleep)
+        if result.outcome == 'unchanged':
+            State(paths.state_file).load().record_noop('unchanged', result.detail,
+                                                       identity=result.identity,
+                                                       cache_path=result.cache_path)
+    except OSError as error:
+        # Reload disk state: a failed success write is not a confirmed record.
+        result = RunResult('failed', str(error))
+        _record_failure(State(paths.state_file).load(), str(error), logger)
     return result

@@ -1,0 +1,6 @@
+include LICENSE README.md CHANGELOG.md config.example.json
+recursive-include macos *.sh *.swift
+recursive-include docs *.md *.txt
+recursive-include linux *.service *.timer
+recursive-include tools *.py
+recursive-include tests *.py *.json *.txt
