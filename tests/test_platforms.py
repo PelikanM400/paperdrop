@@ -88,6 +88,15 @@ class MacPlannerTests(unittest.TestCase):
             ('screen 1 LG UltraFine', '/cache/current.jpg'),
             ('screen 2 No wallpaper yet', None)])
 
+    def test_a_screen_with_no_wallpaper_is_reported_as_nothing(self):
+        """The helper prints the literal `(unknown)`; that is not a wallpaper path."""
+        self.runner.stdout_for = lambda argv: (
+            '0\tBuilt-in\t1728x1117\tscale 2.0\t(unknown)\n')
+        platform, _ = self.build()
+        with patch.object(platform, 'helper', return_value='/fake/paperdrop-set'):
+            state = platform.desktop_state()
+        self.assertEqual(state, [('screen 0 Built-in', None)])
+
     def test_resident_watch_passes_cache_directory_not_startup_image(self):
         from paperdrop.cache import Cache
         cache = Cache(self.home / 'cache')

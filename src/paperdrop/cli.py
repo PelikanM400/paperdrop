@@ -324,14 +324,15 @@ def _watch(args, config, paths):
     # The helper's own notifications are not enough: macOS never delivered the
     # screen-parameter notification to the headless helper (only wake events
     # arrived), so a display reconnected after a run kept the wallpaper it
-    # remembered. Keep the helper for the events it does receive and poll the
-    # desktop for every screen beside it.
-    threading.Thread(target=platform.watch, args=(str(paths.cache_dir),),
-                     kwargs={'lock_file': paths.lock_file}, daemon=True,
-                     name='paperdrop-native-watch').start()
+    # remembered. Run the helper for the events it does receive in *this* thread —
+    # its exit code is what launchd sees, so a helper that dies is still reported —
+    # and poll the desktop for every screen beside it.
+    threading.Thread(target=screen_poll_loop, args=(config, paths, platform),
+                     kwargs={'logger': LOG, 'interval': interval}, daemon=True,
+                     name='paperdrop-screen-poll').start()
     LOG.info('watching for screen configuration changes (native events plus a poll '
              'every %ds)', interval)
-    return screen_poll_loop(config, paths, platform, logger=LOG, interval=interval)
+    return platform.watch(str(paths.cache_dir), lock_file=paths.lock_file)
 
 
 def _doctor(args):

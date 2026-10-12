@@ -712,6 +712,65 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(slept, [])
         self.assertEqual(platform.apply_calls, 0)
 
+    def test_a_busy_lock_does_not_spend_a_repair_attempt(self):
+        """A tick skipped because another updater holds the lock is not an attempt.
+
+        The native helper applies inside that same lock on its first event, so
+        counting those ticks against the budget would leave a real mismatch
+        unrepaired until the next hourly run.
+        """
+        from paperdrop.lock import FileLock
+        config, paths, fetcher = self.build()
+        self.run_once(config, paths, fetcher)
+        cached = Cache(paths.cache_dir).current()
+        platform = support.FakePlatform(
+            reports=str(cached),
+            screens=[('screen 0 Built-in Retina Display', str(cached)),
+                     ('screen 1 LG UltraFine', '/old/current.jpg')])
+        holder = FileLock(paths.lock_file)
+        holder.acquire()
+        ticks = []
+
+        def sleeper(seconds):
+            ticks.append(seconds)
+            if len(ticks) == 4:
+                # The lock is held across the first three checks and released
+                # before the fourth: three busy ticks, then a free one.
+                holder.release()
+
+        screen_poll_loop(config, paths, platform, logger=self.logger,
+                         sleeper=sleeper, iterations=6)
+        self.assertEqual(platform.applied, [str(cached)],
+                         'the three busy ticks must not have used up the budget')
+
+    def test_alternating_wrong_wallpapers_stay_bounded(self):
+        """Two wrong values in turn must not reset the budget for ever."""
+        config, paths, fetcher = self.build()
+        self.run_once(config, paths, fetcher)
+        cached = Cache(paths.cache_dir).current()
+
+        class FlappingScreen(support.FakePlatform):
+            """Keeps its own wallpaper, alternating between two wrong files."""
+
+            def apply(self, image_path):
+                result = super().apply(image_path)
+                target, _ = self.screens[-1]
+                self.screens[-1] = (target, self._next_path)
+                self._next_path = ('/old/two.jpg' if self._next_path == '/old/one.jpg'
+                                   else '/old/one.jpg')
+                return result
+
+            _next_path = '/old/two.jpg'
+
+        platform = FlappingScreen(
+            reports=str(cached),
+            screens=[('screen 0 Built-in Retina Display', str(cached)),
+                     ('screen 1 LG UltraFine', '/old/one.jpg')])
+        screen_poll_loop(config, paths, platform, logger=self.logger,
+                         sleeper=lambda seconds: None, iterations=12)
+        self.assertEqual(platform.apply_calls, 6,
+                         'three attempts per wrong wallpaper, then quiet')
+
     def test_check_mode_is_silent_when_everything_is_fine(self):
         config, paths, fetcher = self.build()
         platform = support.FakePlatform()

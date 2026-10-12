@@ -142,12 +142,11 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(seen, [str(paths.cache_dir)])
 
-    def test_watch_polls_every_screen_beside_the_native_watcher(self):
+    def test_the_native_watcher_runs_beside_the_poll_and_sets_the_exit_code(self):
         """macOS never delivered the screen-change notification: the poll is the net.
 
-        The native helper keeps running for the events it does receive; the poll asks
-        the desktop for every screen, so a display that comes back with the wallpaper
-        it remembered is noticed even when no event arrives.
+        The helper keeps running for the events it does receive — in the main thread,
+        so launchd still sees its exit code — while the poll runs beside it.
         """
         from paperdrop.paths import Paths
         from paperdrop.config import validate
@@ -156,29 +155,30 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         config = validate(json.loads(self.config_path.read_text()))
         paths = Paths.from_config(config, self.config_path)
-        started = threading.Event()
         native = []
 
         def watch(cache_dir, lock_file=None):
-            native.append(cache_dir)
-            started.set()
-            return 0
+            native.append((cache_dir, threading.current_thread() is threading.main_thread()))
+            return 3
 
         self.platform.supports_screen_watch = True
         self.platform.watch = watch
+        polled = threading.Event()
         polls = []
 
         def poll(config_arg, paths_arg, platform_arg, **kwargs):
-            polls.append((kwargs.get('interval'), platform_arg is self.platform))
+            polls.append((kwargs.get('interval'), platform_arg is self.platform,
+                          threading.current_thread() is threading.main_thread()))
+            polled.set()
             return 0
 
-        with patch('paperdrop.cli.screen_poll_loop', side_effect=poll) as loop:
+        with patch('paperdrop.cli.screen_poll_loop', side_effect=poll):
             code, _, err = self.invoke('watch')
-        self.assertEqual(code, 0, err)
-        self.assertEqual(loop.call_count, 1)
-        self.assertTrue(started.wait(5), 'the native watcher must run beside the poll')
-        self.assertEqual(native, [str(paths.cache_dir)])
-        self.assertEqual(polls, [(30, True)])
+        self.assertEqual(code, 3, "launchd must see the native watcher's exit code")
+        self.assertTrue(polled.wait(5), 'the poll must run beside the native watcher')
+        self.assertEqual(native, [(str(paths.cache_dir), True)],
+                         'the native watcher owns the main thread')
+        self.assertEqual(polls, [(30, True, False)], 'the poll runs beside it')
 
     def test_screen_polling_can_be_turned_off(self):
         """schedule.screen_poll_seconds = 0 leaves the native events alone."""

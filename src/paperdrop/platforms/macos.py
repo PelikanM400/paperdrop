@@ -30,6 +30,8 @@ HELPER_NAME = 'paperdrop-set'
 APPLY_LABEL = 'dev.paperdrop.apply'
 WATCH_LABEL = 'dev.paperdrop.watch'
 LAUNCHCTL = 'launchctl'
+# main.swift prints this instead of a path when desktopImageURL(for:) is nil.
+NO_WALLPAPER = '(unknown)'
 
 
 def _default_runner(argv, env=None):
@@ -94,7 +96,7 @@ class MacOS(Platform):
 
         The helper's `screens` output is tab separated (index, name, geometry,
         scale, path); a screen with no wallpaper prints the literal `(unknown)`
-        there, which is reported as a path that does not match and gets repaired.
+        there, which is reported as no path so it reads as "shows nothing".
         A line that does not parse is skipped: guessing about a screen would be
         worse than leaving it out.
         """
@@ -104,6 +106,8 @@ class MacOS(Platform):
             if len(fields) < 5:
                 continue
             index, name, _geometry, _scale, path = fields[:5]
+            if path == NO_WALLPAPER:
+                path = ''
             state.append(('screen %s %s' % (index, name), path or None))
         return state
 

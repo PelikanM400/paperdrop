@@ -350,9 +350,14 @@ def screen_poll_loop(config, paths, platform, logger=None, sleeper=None, interva
     delivered the screen-parameter notification to the headless helper (its log held
     wake events only): a display reconnected after a run kept the wallpaper it had
     remembered, while the same-day check read the main screen and called the desktop
-    up to date. Asking for every screen on a slow timer closes that gap. Each new
-    desktop state gets at most POLL_REPAIR_ATTEMPTS applies, so a screen that cannot
-    be fixed is not re-applied forever.
+    up to date. Asking for every screen on a slow timer closes that gap.
+
+    Each (screen, wrong wallpaper) pair gets at most POLL_REPAIR_ATTEMPTS applies,
+    so a screen that cannot be fixed is not re-applied forever. The budget is
+    counted per pair rather than per desktop state:
+    counting per state let a display that flapped between two wrong files reset the
+    budget on every tick. A tick whose apply found the lock busy does not spend an
+    attempt either — the updater holding it applies the active image itself.
 
     `iterations` exists for tests; production runs until the process ends.
     """
@@ -363,8 +368,7 @@ def screen_poll_loop(config, paths, platform, logger=None, sleeper=None, interva
     if interval <= 0:
         logger.info('screen polling is off (schedule.screen_poll_seconds = 0)')
         return 0
-    seen = None
-    attempts = 0
+    spent = {}                     # (screen, wrong wallpaper) -> applies already spent
     ticks = 0
     while iterations is None or ticks < iterations:
         ticks += 1
@@ -377,25 +381,31 @@ def screen_poll_loop(config, paths, platform, logger=None, sleeper=None, interva
             continue
         if not state:
             continue
-        signature = tuple(sorted((str(target), str(path)) for target, path in state))
-        if signature != seen:
-            seen, attempts = signature, 0
         expected = str(cached) if cached is not None else None
-        wrong = [target for target, path in state
+        wrong = [(target, path) for target, path in state
                  if expected is None or str(path) != expected]
         if not wrong:
+            # Everything matches: a later mismatch on the same path is new again.
+            spent.clear()
             continue
-        if attempts >= POLL_REPAIR_ATTEMPTS:
+        pending = [(target, path) for target, path in wrong
+                   if spent.get((str(target), str(path)), 0) < POLL_REPAIR_ATTEMPTS]
+        if not pending:
             continue
-        attempts += 1
         logger.info('%d of %d screens do not show the cached image; re-applying',
                     len(wrong), len(state))
         try:
             apply_cached(config, paths, platform, logger=logger)
         except BusyError as error:
+            # Another updater holds the lock and applies the active image itself on
+            # its first event: this tick must not spend a repair attempt.
             logger.info('an updater is already running; leaving the apply to it: %s', error)
+            continue
         except (OSError, PaperDropError) as error:
             logger.warning('could not re-apply the cached image: %s', error)
+        for target, path in pending:
+            key = (str(target), str(path))
+            spent[key] = spent.get(key, 0) + 1
     return 0
 
 

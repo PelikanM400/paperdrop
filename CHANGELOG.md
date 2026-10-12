@@ -6,6 +6,28 @@ All notable changes to PaperDrop are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.13] — 2026-10-12
+
+Still a pre-release: Python regressions are exercised off-device; the Swift helper
+requires local compilation and real-Mac visual acceptance.
+
+Follow-ups from the independent review of 0.1.12, none of which blocked that
+release:
+
+### Fixed
+- A repair tick that found the updater lock busy spent one of the three attempts,
+  so a mismatch could stay unrepaired until the next hourly run — even though the
+  holder of that lock applies the active image itself. Busy ticks no longer count.
+- The attempt budget was keyed on the whole desktop state, so a display that
+  alternated between two wrong wallpapers reset it on every poll. It is counted per
+  (screen, wrong wallpaper) now.
+- A screen with no wallpaper at all was reported as the path `(unknown)` — the
+  literal the helper prints — which read like a real wallpaper in the log. It is
+  reported as showing nothing.
+- `paperdrop watch` had moved the native helper into a background thread, so the
+  helper's own exit code was no longer what launchd saw. The helper owns the main
+  thread again and the screen poll runs beside it as a daemon thread.
+
 ## [0.1.12] — 2026-10-12
 
 Still a pre-release: Python regressions are exercised off-device; the Swift helper
