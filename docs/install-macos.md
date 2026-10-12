@@ -152,9 +152,9 @@ paperdrop apply-cached      # put the cached image back, no network
 
 ## Upgrading from v0.1.6 fixed-path caches
 
-This fix ships in **v0.1.7 (pre-release)**. Update Python and the native helper
+This fix ships in **v0.1.8 (pre-release)**. Update Python and the native helper
 together in the logged-in Mac session. For copy-and-paste release-asset steps,
-see `upgrade-0.1.7-zh.md`; the source-checkout alternative is:
+see `upgrade-0.1.8-zh.md`; the source-checkout alternative is:
 
 ```bash
 paperdrop pause                       # stops the old resident helper and schedule
@@ -210,7 +210,7 @@ update finishes, so it cannot restore a stale captured URL. Direct helper
 The helper does not download. Legacy `watch <file>` also follows a migrated
 index and now requires the explicit `--lock-file` argument.
 
-### Required Mac acceptance for the v0.1.7 fix
+### Required Mac acceptance for the v0.1.8 fix
 
 - [ ] Recompile with the local Swift SDK; verify the selected helper recognizes
       `watch-cache` and the restarted LaunchAgent stays running.

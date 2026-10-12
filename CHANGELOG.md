@@ -6,6 +6,20 @@ All notable changes to PaperDrop are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.8] — 2026-10-12
+
+Still a pre-release: Python regressions are exercised off-device; the Swift helper
+requires local compilation and real-Mac visual acceptance.
+
+### Fixed
+- The Mac helper did not compile at all with swiftc 6.4 (Apple Swift 6.4).
+  `Darwin.flock(fd, LOCK_EX)` resolved to `struct flock` rather than the flock(2)
+  syscall, so the build stopped with "argument passed to call that takes no
+  arguments" and produced no helper; v0.1.7 could only report `last try: FAILED`
+  once its schedule was reinstalled. The two calls are now unqualified, which is
+  what makes the compiler select the function, and a source-contract test keeps
+  the qualified form from returning. Compilation remains unverified off-device.
+
 ## [0.1.7] — 2026-10-12
 
 Still a pre-release: Python regressions are exercised off-device; the updated

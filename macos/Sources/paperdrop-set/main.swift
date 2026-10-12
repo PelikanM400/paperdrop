@@ -166,10 +166,15 @@ func withUpdateLock(_ path: String, action: () throws -> Void) throws {
     guard fd >= 0 else { throw HelperError.applyFailed("could not open update lock") }
     defer { Darwin.close(fd) }
     // Wait for an updater, then resolve anew. Never capture a URL before locking.
-    while Darwin.flock(fd, LOCK_EX) != 0 {
+    // These two calls must stay UNQUALIFIED. Module Darwin exports the flock(2)
+    // function *and* `struct flock`, and prefixing the call with the module name
+    // resolves to the struct's initialiser instead ("argument passed to call that
+    // takes no arguments"), a build failure with swiftc 6.4. Leaving the module
+    // qualifier off is what makes the compiler select the syscall.
+    while flock(fd, LOCK_EX) != 0 {
         if errno != EINTR { throw HelperError.applyFailed("could not acquire update lock") }
     }
-    defer { _ = Darwin.flock(fd, LOCK_UN) }
+    defer { _ = flock(fd, LOCK_UN) }
     try action()
 }
 

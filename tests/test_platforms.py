@@ -103,8 +103,8 @@ class MacPlannerTests(unittest.TestCase):
         source = (support.ROOT / 'macos/Sources/paperdrop-set/main.swift').read_text()
         self.assertIn('func withUpdateLock(', source)
         lock = source.split('func withUpdateLock(', 1)[1].split('func watch(', 1)[0]
-        self.assertIn('Darwin.flock(fd, LOCK_EX)', lock)
-        self.assertIn('Darwin.flock(fd, LOCK_UN)', lock)
+        self.assertIn('while flock(fd, LOCK_EX) != 0', lock)
+        self.assertIn('flock(fd, LOCK_UN)', lock)
         self.assertIn('defer', lock)
         watch = source.split('func watch(', 1)[1].split('func run()', 1)[0]
         self.assertIn('withUpdateLock(lockPath)', watch)
@@ -126,6 +126,19 @@ class MacPlannerTests(unittest.TestCase):
             self.assertEqual(platform.watch(image, lock_file=paths.lock_file), 0)
         self.assertEqual(call.call_args[0][0], ['/fake/paperdrop-set', 'watch-cache',
                          str(image.parent), '--lock-file', str(paths.lock_file)])
+
+    def test_the_native_helper_calls_flock_unqualified(self):
+        """`Darwin.flock(...)` resolves to `struct flock`, not to the syscall.
+
+        Module Darwin exports both the C function and the struct, so qualifying
+        the call made swiftc 6.4 report "argument passed to call that takes no
+        arguments" and the helper never built on a real Mac. The unqualified form
+        is the one that compiles; keep it that way.
+        """
+        source = (support.ROOT / 'macos/Sources/paperdrop-set/main.swift').read_text()
+        self.assertNotIn('Darwin.flock(', source)
+        self.assertIn('while flock(fd, LOCK_EX) != 0', source)
+        self.assertIn('flock(fd, LOCK_UN)', source)
 
     def test_native_index_validates_regular_roles_and_selects_confirmed_active(self):
         # Source contract only; compilation/AppKit acceptance remains pending.
