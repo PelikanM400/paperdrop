@@ -115,6 +115,34 @@ class MacOS(Platform):
     def _agent_path(self, label):
         return self._agent_dir() / (label + '.plist')
 
+    def _parked_dir(self):
+        """Where a paused agent's plist waits, outside the auto-loaded directory."""
+        return self.home / 'Library' / 'Application Support' / 'PaperDrop' / 'paused'
+
+    def _parked_path(self, label):
+        return self._parked_dir() / (label + '.plist')
+
+    def _watch_enabled(self):
+        """schedule.watch_screen_changes: install the resident watcher or not."""
+        return bool((self.config.get('schedule') or {}).get('watch_screen_changes', True))
+
+    def _catch_up_on_login(self):
+        """schedule.catch_up_on_login: run once at login (covers an off machine)."""
+        return bool((self.config.get('schedule') or {}).get('catch_up_on_login', True))
+
+    def _wanted_labels(self):
+        return (APPLY_LABEL,) + ((WATCH_LABEL,) if self._watch_enabled() else ())
+
+    def agent_state(self, label):
+        """`installed` / `paused` / `disabled` / `not installed`, for status/doctor."""
+        if label == WATCH_LABEL and not self._watch_enabled():
+            return 'disabled'
+        if self._agent_path(label).exists():
+            return 'installed'
+        if self._parked_path(label).exists():
+            return 'paused'
+        return 'not installed'
+
     def _payload(self, label, arguments, paths, extra=None):
         argv, env = runtime_command()
         payload = {
@@ -150,34 +178,38 @@ class MacOS(Platform):
         agents.mkdir(parents=True, exist_ok=True)
         logs.mkdir(parents=True, exist_ok=True)
         created = []
-        triggers = {
-            'RunAtLoad': True,                                    # login catch-up
-            'StartCalendarInterval': {'Hour': hour, 'Minute': minute},
-        }
+        triggers = {'StartCalendarInterval': {'Hour': hour, 'Minute': minute}}
+        if self._catch_up_on_login():
+            # A run at login also covers a machine that was off at the daily time;
+            # with it switched off, the periodic catch-up picks the work up instead.
+            triggers['RunAtLoad'] = True
         if catch_up_minutes > 0:
             # launchd does not fire a calendar trigger while the machine sleeps, so a
             # daily run missed overnight would otherwise wait a whole day. A periodic
             # trigger catches it soon after wake; the same-day check makes those extra
             # runs cheap (no download, no re-apply).
             triggers['StartInterval'] = catch_up_minutes * 60
-        apply_payload = self._payload(
-            APPLY_LABEL, ['run'],
-            paths,
-            extra=dict(triggers))
-        watch_payload = self._payload(
-            WATCH_LABEL, ['watch'],
-            paths,
-            extra={'RunAtLoad': True, 'KeepAlive': True})
-        for label, payload in ((APPLY_LABEL, apply_payload), (WATCH_LABEL, watch_payload)):
+        apply_payload = self._payload(APPLY_LABEL, ['run'], paths, extra=dict(triggers))
+        payloads = [(APPLY_LABEL, apply_payload)]
+        if self._watch_enabled():
+            payloads.append((WATCH_LABEL, self._payload(
+                WATCH_LABEL, ['watch'], paths, extra={'RunAtLoad': True, 'KeepAlive': True})))
+        else:
+            # schedule.watch_screen_changes = false: leave no stale watcher behind.
+            self._launchctl('bootout', 'gui/%s/%s' % (str(os.getuid()), WATCH_LABEL))
+            self._agent_path(WATCH_LABEL).unlink(missing_ok=True)
+        for label, payload in payloads:
             target = self._agent_path(label)
             with open(target, 'wb') as stream:
                 plistlib.dump(payload, stream)
+            # A fresh install is an active install: it also un-parks the label.
+            self._parked_path(label).unlink(missing_ok=True)
             created.append(str(target))
         if self._launchctl('list') is None:
             raise PlatformError('launchctl was not found; the agent files were written to %s but '
                                 'were not loaded.' % agents)
         uid = str(os.getuid())
-        for label in (APPLY_LABEL, WATCH_LABEL):
+        for label, _payload in payloads:
             self._launchctl('bootout', 'gui/%s/%s' % (uid, label))
             result = self._launchctl('bootstrap', 'gui/%s' % uid, str(self._agent_path(label)))
             if result is None or result.returncode != 0:
@@ -190,25 +222,50 @@ class MacOS(Platform):
         removed = []
         for label in (APPLY_LABEL, WATCH_LABEL):
             self._launchctl('bootout', 'gui/%s/%s' % (uid, label))
-            target = self._agent_path(label)
-            if target.exists():
-                target.unlink()
-                removed.append(str(target))
+            for target in (self._agent_path(label), self._parked_path(label)):
+                if target.exists():
+                    target.unlink()
+                    removed.append(str(target))
         return removed
 
     def pause(self):
+        """Unload the agents and park their plists outside the auto-loaded directory.
+
+        `launchctl bootout` on its own only lasts until the next login: launchd
+        loads every plist in ~/Library/LaunchAgents when the user logs in, so a
+        paused schedule would silently come back after a restart. Moving the files
+        aside is what makes the pause real, and `resume` moves them back.
+        """
         uid = str(os.getuid())
+        parked = []
         for label in (APPLY_LABEL, WATCH_LABEL):
             self._launchctl('bootout', 'gui/%s/%s' % (uid, label))
-        return 'LaunchAgents unloaded (resume reloads them)'
+            target = self._agent_path(label)
+            if target.exists():
+                self._parked_dir().mkdir(parents=True, exist_ok=True)
+                os.replace(target, self._parked_path(label))
+                parked.append(label)
+        if not parked:
+            return 'LaunchAgents were not installed; nothing to pause'
+        return ('LaunchAgents unloaded and parked in %s (this survives a restart; '
+                '"paperdrop resume" reloads them)' % self._parked_dir())
 
     def resume(self):
         uid = str(os.getuid())
-        for label in (APPLY_LABEL, WATCH_LABEL):
+        loaded = []
+        for label in self._wanted_labels():
+            parked = self._parked_path(label)
             target = self._agent_path(label)
+            if parked.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(parked, target)
+                loaded.append(label)
             if target.exists():
                 self._launchctl('bootstrap', 'gui/%s' % uid, str(target))
-        return 'LaunchAgents loaded'
+        if not loaded and not any(self._agent_path(label).exists()
+                                  for label in self._wanted_labels()):
+            return 'nothing to resume: run "paperdrop install" first'
+        return 'LaunchAgents loaded (%s)' % ', '.join(self._wanted_labels())
 
     # --- reporting ----------------------------------------------------------
     def doctor(self):
@@ -221,9 +278,14 @@ class MacOS(Platform):
         checks.append(('launchctl available', bool(shutil.which(LAUNCHCTL)),
                        shutil.which(LAUNCHCTL) or 'missing'))
         for label in (APPLY_LABEL, WATCH_LABEL):
-            exists = self._agent_path(label).exists()
-            checks.append(('agent %s installed' % label, exists,
-                           str(self._agent_path(label)) if exists else 'not installed'))
+            state = self.agent_state(label)
+            detail = {
+                'installed': str(self._agent_path(label)),
+                'paused': 'paused: run "paperdrop resume" to reload it',
+                'disabled': 'disabled: schedule.watch_screen_changes = false',
+                'not installed': 'not installed',
+            }[state]
+            checks.append(('agent %s installed' % label, state != 'not installed', detail))
         return checks
 
     def status_lines(self):
@@ -246,6 +308,11 @@ class MacOS(Platform):
         except PlatformError:
             pass
         for label in (APPLY_LABEL, WATCH_LABEL):
-            state = 'installed' if self._agent_path(label).exists() else 'not installed'
-            lines.append('agent %s: %s' % (label, state))
+            state = self.agent_state(label)
+            if state == 'paused':
+                lines.append('agent %s: paused (run "paperdrop resume")' % label)
+            elif state == 'disabled':
+                lines.append('agent %s: disabled (schedule.watch_screen_changes = false)' % label)
+            else:
+                lines.append('agent %s: %s' % (label, state))
         return lines

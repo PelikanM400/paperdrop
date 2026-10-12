@@ -209,7 +209,7 @@ image to confirm the SHA-256 matches. It writes nothing to your cache.
 | `paperdrop install` | Create the user-level schedule. |
 | `paperdrop uninstall` | Remove the schedule. **Keeps** the cached wallpaper. |
 | `paperdrop uninstall --purge` | Remove the schedule and delete the cached images. |
-| `paperdrop pause` / `resume` | Stop or restart the schedule without removing it. |
+| `paperdrop pause` / `resume` | Stop or restart the schedule without removing it. A pause survives a restart: the agent files are parked outside the directory launchd auto-loads. |
 | `paperdrop doctor` | Check Python, Pillow, the desktop, the helper and the writable paths. |
 | `paperdrop apply-cached` | Re-apply the cached image, no network. |
 | `paperdrop watch` | Apply the cache, then re-apply when the screen layout changes (macOS). |
@@ -467,7 +467,7 @@ python3 tools/validate-manifest.py https://example.com/desk.json --check-image
 | `paperdrop install` | 创建用户级定时。 |
 | `paperdrop uninstall` | 移除定时，**保留**缓存壁纸。 |
 | `paperdrop uninstall --purge` | 移除定时并删除缓存图片。 |
-| `paperdrop pause` / `resume` | 暂停／恢复定时，不删除配置。 |
+| `paperdrop pause` / `resume` | 暂停／恢复定时，不删除配置。暂停**撑过重启**：agent 文件被挪到 launchd 不会自动加载的目录。 |
 | `paperdrop doctor` | 检查 Python、Pillow、桌面环境、小工具、可写路径。 |
 | `paperdrop apply-cached` | 重新应用缓存图片，不联网。 |
 | `paperdrop watch` | 先应用缓存，之后在屏幕布局变化时重新应用（macOS）。 |

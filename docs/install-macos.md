@@ -140,12 +140,25 @@ again, then:
 launchctl list | grep paperdrop
 ```
 
+### Schedule knobs (each needs `paperdrop install` again)
+
+| Key | Effect | If you switch it off |
+|---|---|---|
+| `schedule.catch_up_on_login` | a run at login, which also covers a machine that was off at the daily time (`RunAtLoad`) | nothing runs at login; the hourly catch-up picks the work up instead |
+| `schedule.watch_screen_changes` | installs the resident watcher that re-applies the image after a screen change or a wake | no resident watcher; `paperdrop install` removes the agent a previous install left behind |
+
+`paperdrop pause` unloads both agents *and* parks their files outside
+`~/Library/LaunchAgents`, so a pause survives a restart — launchd would otherwise
+load them again at the next login. `paperdrop resume` moves them back, and
+`paperdrop install` always leaves the schedule active. `paperdrop status` says
+which of `installed` / `paused` / `disabled` / `not installed` each agent is in.
+
 ## 5. Day-to-day
 
 ```bash
 paperdrop status            # cache, last success, what the screens show
 paperdrop update            # replace the wallpaper now
-paperdrop pause             # stop the schedule (unloads both agents)
+paperdrop pause             # stop the schedule; survives a restart (files are parked)
 paperdrop resume
 paperdrop apply-cached      # put the cached image back, no network
 ```

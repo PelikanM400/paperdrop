@@ -195,7 +195,12 @@ def example_config():
                               'catch_up_interval_minutes adds a periodic cheap check so a run '
                               'missed while the machine was asleep happens soon after it '
                               'wakes; the same-day check makes those runs nearly free. '
-                              '0 disables it.'),
+                              '0 disables it. catch_up_on_login adds a run at login (macOS '
+                              'RunAtLoad; systemd Persistent on Linux), and '
+                              'watch_screen_changes installs the resident macOS watcher that '
+                              're-applies the image after a screen change or a wake. Both are '
+                              'read by the installer: change them, then run '
+                              '"paperdrop install" again.'),
         'schedule': {'daily_time': '07:35', 'catch_up_on_login': True,
                      'watch_screen_changes': True, 'catch_up_interval_minutes': 60},
     }

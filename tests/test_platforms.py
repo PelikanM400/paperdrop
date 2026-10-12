@@ -115,6 +115,67 @@ class MacPlannerTests(unittest.TestCase):
         apply = source.split('case "apply":', 1)[1].split('case "current":', 1)[0]
         self.assertNotIn('withUpdateLock', apply, 'Python already holds the lock during helper apply')
 
+    def test_pause_parks_the_plists_so_it_survives_a_restart(self):
+        """`launchctl bootout` alone only lasts until the next login.
+
+        launchd loads every plist in ~/Library/LaunchAgents when the user logs in,
+        so a pause that only unloads looks resumed after a restart. Parking the
+        files outside that directory is what makes the pause real.
+        """
+        platform, paths = self.build()
+        with patch('paperdrop.platforms.macos.shutil.which', return_value='/usr/bin/launchctl'):
+            platform.install(paths, '07:35')
+            self.assertTrue((self.agents() / (APPLY_LABEL + '.plist')).exists())
+            message = platform.pause()
+            self.assertIn('restart', message)
+            self.assertFalse((self.agents() / (APPLY_LABEL + '.plist')).exists())
+            self.assertFalse((self.agents() / (WATCH_LABEL + '.plist')).exists())
+            parked = platform._parked_path(APPLY_LABEL)
+            self.assertTrue(parked.exists(), 'the plist is kept, never deleted')
+            self.assertNotIn(str(self.agents()), str(parked),
+                             'parked outside the directory launchd auto-loads')
+            self.assertIn('agent %s: paused' % APPLY_LABEL, '\n'.join(platform.status_lines()))
+            self.assertIn('paused', str(platform.doctor()))
+            platform.resume()
+        self.assertTrue((self.agents() / (APPLY_LABEL + '.plist')).exists())
+        self.assertFalse(platform._parked_path(APPLY_LABEL).exists())
+        self.assertIn('agent %s: installed' % APPLY_LABEL, '\n'.join(platform.status_lines()))
+
+    def test_uninstall_removes_parked_plists_too(self):
+        """A parked plist left behind would come back on the next `resume`."""
+        platform, paths = self.build()
+        with patch('paperdrop.platforms.macos.shutil.which', return_value='/usr/bin/launchctl'):
+            platform.install(paths, '07:35')
+            platform.pause()
+            removed = platform.uninstall()
+        self.assertFalse(platform._parked_path(APPLY_LABEL).exists())
+        self.assertEqual(len(removed), 2)
+
+    def test_login_catch_up_can_be_switched_off(self):
+        platform, paths = self.build(schedule={'catch_up_on_login': False})
+        with patch('paperdrop.platforms.macos.shutil.which', return_value='/usr/bin/launchctl'):
+            platform.install(paths, '07:35')
+        payload = plistlib.loads((self.agents() / (APPLY_LABEL + '.plist')).read_bytes())
+        self.assertNotIn('RunAtLoad', payload)
+        self.assertEqual(payload['StartCalendarInterval'], {'Hour': 7, 'Minute': 35})
+        self.assertEqual(payload['StartInterval'], 3600,
+                         'the hourly catch-up still covers the missed day')
+
+    def test_turning_screen_watching_off_removes_the_installed_watcher(self):
+        platform, paths = self.build()
+        with patch('paperdrop.platforms.macos.shutil.which', return_value='/usr/bin/launchctl'):
+            platform.install(paths, '07:35')
+            self.assertTrue((self.agents() / (WATCH_LABEL + '.plist')).exists())
+            off = MacOS(config=validate({'source': {'url': 'https://example.test/desk.json'},
+                                         'schedule': {'watch_screen_changes': False}}),
+                        home=self.home, runner=self.runner, environ={'HOME': str(self.home)})
+            created = off.install(paths, '07:35')
+        self.assertFalse((self.agents() / (WATCH_LABEL + '.plist')).exists())
+        self.assertEqual(len(created), 1)
+        self.assertEqual(off.agent_state(WATCH_LABEL), 'disabled')
+        self.assertEqual(off.agent_state(APPLY_LABEL), 'installed')
+        self.assertIn('disabled', '\n'.join(off.status_lines()))
+
     def test_watch_passes_custom_config_lock_path_to_native_helper(self):
         import inspect
         from paperdrop.cache import Cache
@@ -357,6 +418,19 @@ class XfceTests(unittest.TestCase):
         self.assertIn('ExecStart=', service)
         self.assertIn('run', service)
         self.assertIn('Type=oneshot', service)
+
+    def test_a_missed_run_is_persisted_only_when_login_catch_up_is_on(self):
+        """systemd's Persistent= is the Linux counterpart of the login catch-up."""
+        for flag, expected in ((False, 'Persistent=false'), (True, 'Persistent=true')):
+            config = validate({'source': {'url': 'https://example.test/desk.json'},
+                               'schedule': {'catch_up_on_login': flag}})
+            platform = Xfce(config=config, runner=self.runner, home=self.home,
+                            environ={'HOME': str(self.home), 'DISPLAY': ':0',
+                                     'XDG_CONFIG_HOME': str(self.home / '.config')},
+                            binary='/usr/bin/xfconf-query', systemctl='/usr/bin/systemctl')
+            paths = Paths.from_config(config, config_file=self.home / 'config.json')
+            _, timer = platform._unit_text(paths, '05:05')
+            self.assertIn(expected, timer)
 
     def test_the_exec_start_line_puts_the_global_option_first(self):
         # Same failure mode as the launchd plist: "run --config X" is a usage

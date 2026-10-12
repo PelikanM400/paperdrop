@@ -6,6 +6,25 @@ All notable changes to PaperDrop are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.11] — 2026-10-12
+
+Still a pre-release: Python regressions are exercised off-device; the Swift helper
+requires local compilation and real-Mac visual acceptance.
+
+### Fixed
+- `paperdrop pause` did not survive a restart on macOS: it only ran `launchctl
+  bootout`, and launchd reloads every plist in `~/Library/LaunchAgents` at login,
+  so a paused schedule quietly came back. The agent files are now parked outside
+  that directory (`~/Library/Application Support/PaperDrop/paused`) and `resume`
+  moves them back. `uninstall` removes parked copies too, and `status` / `doctor`
+  report `paused` rather than `not installed`.
+- `schedule.catch_up_on_login` and `schedule.watch_screen_changes` were accepted,
+  validated and documented but never read by anything. The installer honours them
+  now: the first controls `RunAtLoad` on macOS and `Persistent=` on the Linux
+  timer, the second decides whether the resident macOS watcher is installed (and
+  removes it when switched off). Both are installer settings, so change them and
+  run `paperdrop install` again.
+
 ## [0.1.10] — 2026-10-12
 
 Still a pre-release: Python regressions are exercised off-device; the Swift helper
