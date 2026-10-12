@@ -42,10 +42,11 @@ class Platform:
     def desktop_state(self) -> list:
         """Return [(target, wallpaper path), ...] for every screen or desktop entry.
 
-        `current()` answers for one screen, which is not enough to notice a second
-        display that kept an older image (AppKit reports the main screen only). A
-        platform that can see all of its screens returns them here; returning an
-        empty list means "cannot tell", and callers fall back to `current()`.
+        `current()` answers for a single screen, which is not enough to notice a
+        second display that kept an older image: on macOS that single value is the
+        helper's `current` command, i.e. `NSScreen.main`. A platform that can see
+        all of its screens returns them here; returning an empty list means
+        "cannot tell", and callers fall back to `current()`.
         """
         return []
 

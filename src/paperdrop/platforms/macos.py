@@ -93,8 +93,10 @@ class MacOS(Platform):
         """One entry per screen: ('screen <index> <name>', wallpaper path or None).
 
         The helper's `screens` output is tab separated (index, name, geometry,
-        scale, path). A line that does not parse is skipped: guessing about a
-        screen would be worse than leaving it out.
+        scale, path); a screen with no wallpaper prints the literal `(unknown)`
+        there, which is reported as a path that does not match and gets repaired.
+        A line that does not parse is skipped: guessing about a screen would be
+        worse than leaving it out.
         """
         state = []
         for line in self.screens():
