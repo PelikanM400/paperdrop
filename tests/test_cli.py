@@ -228,6 +228,30 @@ class CliTests(unittest.TestCase):
         self.assertTrue(json.loads(out)['purged'])
         self.assertFalse((self.root / 'cache' / ('image-' + sha256_hex(IMAGE) + '.jpg')).exists())
 
+    def test_doctor_reports_a_valid_config_as_ok_not_as_the_path(self):
+        """The detail column is the path on success and the message on failure.
+
+        `_load` returns (config, path), and doctor used to read that second element
+        as an error object: a perfectly good config file was reported FAIL and
+        doctor always exited 1, silently breaking any chain that joined it with
+        `&&` (the documented upgrade path did exactly that).
+        """
+        self.write_config()
+        code, out, _ = self.invoke('doctor', '--json')
+        rows = {row['check']: row for row in json.loads(out)}
+        self.assertTrue(rows['configuration']['ok'], rows['configuration'])
+        self.assertIn('config.json', rows['configuration']['detail'])
+
+        broken = self.root / 'broken-config.json'
+        broken.write_text('{"source": {"url": "https://example.test/d.json"}, "nope": 1}')
+        out = io.StringIO()
+        with redirect_stdout(out):
+            # `--config` is a global option: it must precede the verb.
+            main(['--config', str(broken), 'doctor', '--json'])
+        rows = {row['check']: row for row in json.loads(out.getvalue())}
+        self.assertFalse(rows['configuration']['ok'])
+        self.assertIn('Unknown configuration key', rows['configuration']['detail'])
+
     def test_doctor_runs_and_reports_each_check(self):
         self.write_config()
         code, out, _ = self.invoke('doctor', '--json')

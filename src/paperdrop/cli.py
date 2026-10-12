@@ -66,15 +66,26 @@ def build_parser():
     return parser
 
 
-def _load(args, allow_defaults=False) -> tuple:
+def _load(args) -> tuple:
+    """Return ``(config, config_file)``; raise ConfigError when it cannot be read."""
+    return load_config(args.config)
+
+
+def _load_or_defaults(args) -> tuple:
+    """``(config, config_file, error)`` for diagnostics that must still run.
+
+    Falls back to the example config when the real file cannot be read, and says
+    why. Never hand `_load`'s second element around as if it were an error: on
+    success it is the *path*, and reading it as a failure made `doctor` report a
+    perfectly good config as FAIL and exit 1, which broke any `&&` chain
+    containing it (the documented upgrade path did exactly that).
+    """
+    config_file = args.config or paths_default()
     try:
         config, path = load_config(args.config)
-        return config, path
+        return config, path, None
     except ConfigError as error:
-        if allow_defaults:
-            fallback = validate(example_config())
-            return fallback, str(error)
-        raise
+        return validate(example_config()), config_file, str(error)
 
 
 def _print(message):
@@ -301,11 +312,11 @@ def _watch(args, config, paths):
 
 
 def _doctor(args):
-    config, config_error = _load(args, allow_defaults=True)
-    paths = Paths.from_config(config, config_file=(args.config or paths_default()))
+    config, config_file, config_error = _load_or_defaults(args)
+    paths = Paths.from_config(config, config_file=config_file)
     rows = []
     rows.append(('configuration', config_error is None,
-                 str(args.config) if config_error is None else config_error))
+                 str(config_file) if config_error is None else config_error))
     rows.append(('python', sys.version_info >= (3, 9), sys.version.split()[0]))
     try:
         import PIL

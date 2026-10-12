@@ -6,6 +6,19 @@ All notable changes to PaperDrop are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.9] — 2026-10-12
+
+Still a pre-release: Python regressions are exercised off-device; the Swift helper
+requires local compilation and real-Mac visual acceptance.
+
+### Fixed
+- `paperdrop doctor` reported `configuration FAIL <path>` for a perfectly good
+  config file and exited 1, because it read the second element of `_load()` —
+  the *path* on success — as if it were an error object. Diagnostics now load
+  through `_load_or_defaults()`, which returns `(config, config_file, error)` and
+  says explicitly whether the example config was substituted. Anyone following the
+  upgrade guide with `paperdrop doctor && …` was stopped at the first step.
+
 ## [0.1.8] — 2026-10-12
 
 Still a pre-release: Python regressions are exercised off-device; the Swift helper
