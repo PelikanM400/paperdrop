@@ -306,9 +306,18 @@ def _watch(args, config, paths):
     if not platform.supports_screen_watch:
         print('paperdrop: this platform does not support screen watching yet.', file=sys.stderr)
         return 1
-    path = apply_cached(config, paths, platform, logger=LOG)
+    # Both agents start at login, so an updater can hold the lock at this instant.
+    # A busy lock must not end the resident process: the helper resolves and applies
+    # the active image inside the same lock on its first event anyway, whereas
+    # exiting here makes launchd record a failure and relaunch on a ten-second
+    # throttle — leaving screen-change and wake protection off during that gap.
+    try:
+        apply_cached(config, paths, platform, logger=LOG)
+    except BusyError as error:
+        LOG.info('an updater is already running; the resident helper applies the active '
+                 'image itself: %s', error)
     LOG.info('watching for screen configuration changes')
-    return platform.watch(path, lock_file=paths.lock_file)
+    return platform.watch(str(paths.cache_dir), lock_file=paths.lock_file)
 
 
 def _doctor(args):

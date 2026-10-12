@@ -107,7 +107,38 @@ class CliTests(unittest.TestCase):
         self.platform.watch = watch
         code, _, _ = self.invoke('watch')
         self.assertEqual(code, 0)
-        self.assertEqual(calls, [pathlib.Path(State(paths.state_file).load().last_success['cache_path'])])
+        # The resident helper is handed the cache directory: it re-reads the role
+        # index itself, so the offline apply above is best-effort, not a handoff.
+        self.assertEqual(calls, [str(paths.cache_dir)])
+        self.assertTrue(State(paths.state_file).load().last_success['cache_path'])
+
+    def test_watch_starts_even_when_an_updater_holds_the_lock(self):
+        """Both agents start at login: a busy lock must not kill the watcher.
+
+        Exiting here makes launchd record a failure and relaunch on a ten-second
+        throttle, so screen-change and wake protection is off during the gap — and
+        the helper applies the active image inside the same lock on its first event
+        anyway, so the initial Python-side apply is not needed for the handoff.
+        """
+        from paperdrop.lock import FileLock
+        from paperdrop.paths import Paths
+        from paperdrop.config import validate
+        self.write_config()
+        code, _, _ = self.invoke('run', '--json')
+        self.assertEqual(code, 0)
+        config = validate(json.loads(self.config_path.read_text()))
+        paths = Paths.from_config(config, self.config_path)
+        seen = []
+        self.platform.supports_screen_watch = True
+        self.platform.watch = lambda cache_dir, lock_file=None: (seen.append(cache_dir), 0)[1]
+        holder = FileLock(paths.lock_file)
+        holder.acquire()                       # an updater is mid-run
+        try:
+            code, out, err = self.invoke('watch')
+        finally:
+            holder.release()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(seen, [str(paths.cache_dir)])
 
     def test_print_example_config_needs_no_config_file(self):
         out = io.StringIO()

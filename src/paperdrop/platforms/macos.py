@@ -85,10 +85,13 @@ class MacOS(Platform):
         result = self._helper('screens')
         return [line for line in (result.stdout or '').splitlines() if line.strip()]
 
-    def watch(self, image_path, lock_file):
-        """Each native resolve/apply event uses the configured updater lock."""
-        directory = str(pathlib.Path(image_path).parent)
-        return subprocess.call([self.helper(), 'watch-cache', directory,
+    def watch(self, cache_dir, lock_file):
+        """Each native resolve/apply event uses the configured updater lock.
+
+        The helper is handed the cache *directory*, not an image: it reads the role
+        index itself on every event (a startup image would freeze a stale choice).
+        """
+        return subprocess.call([self.helper(), 'watch-cache', str(cache_dir),
                                 '--lock-file', str(lock_file)], env=dict(self.environ))
 
     # --- scheduling ---------------------------------------------------------

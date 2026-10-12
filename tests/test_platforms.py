@@ -76,7 +76,7 @@ class MacPlannerTests(unittest.TestCase):
         platform, paths = self.build()
         with patch.object(platform, 'helper', return_value='/fake/paperdrop-set'), \
                 patch('paperdrop.platforms.macos.subprocess.call', return_value=0) as call:
-            self.assertEqual(platform.watch(first, lock_file=paths.lock_file), 0)
+            self.assertEqual(platform.watch(str(cache.directory), lock_file=paths.lock_file), 0)
         self.assertEqual(call.call_args[0][0],
                          ['/fake/paperdrop-set', 'watch-cache', str(cache.directory),
                           '--lock-file', str(paths.lock_file)])
@@ -123,7 +123,7 @@ class MacPlannerTests(unittest.TestCase):
         image = Cache(self.home / 'cache').publish(b'A', '.jpg')
         with patch.object(platform, 'helper', return_value='/fake/paperdrop-set'), \
                 patch('paperdrop.platforms.macos.subprocess.call', return_value=0) as call:
-            self.assertEqual(platform.watch(image, lock_file=paths.lock_file), 0)
+            self.assertEqual(platform.watch(str(image.parent), lock_file=paths.lock_file), 0)
         self.assertEqual(call.call_args[0][0], ['/fake/paperdrop-set', 'watch-cache',
                          str(image.parent), '--lock-file', str(paths.lock_file)])
 

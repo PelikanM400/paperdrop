@@ -39,8 +39,8 @@ class Platform:
         """Return the currently applied wallpaper path, or None if unknown."""
         raise NotImplementedError
 
-    def watch(self, image_path) -> int:
-        """Block, re-applying `image_path` whenever the screen layout changes."""
+    def watch(self, cache_dir, lock_file=None) -> int:
+        """Block, re-resolving and re-applying the active cache image on every event."""
         raise PlatformError('%s: watching for screen changes is not supported.' % self.name)
 
     # --- scheduling ---------------------------------------------------------

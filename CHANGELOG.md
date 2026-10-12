@@ -6,6 +6,22 @@ All notable changes to PaperDrop are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.10] — 2026-10-12
+
+Still a pre-release: Python regressions are exercised off-device; the Swift helper
+requires local compilation and real-Mac visual acceptance.
+
+### Fixed
+- The resident watcher exited 1 whenever an updater held the lock at start-up
+  (`paperdrop: Another PaperDrop run is already in progress.`), which is the normal
+  case at login because both agents start at the same moment. launchd recorded a
+  failure and relaunched on a ten-second throttle, leaving screen-change and wake
+  protection off during the gap. The watcher now logs the contention and starts
+  anyway: the native helper resolves and applies the active image inside the same
+  lock on its first event.
+- `Platform.watch()` takes the cache *directory* rather than deriving it from an
+  image path, which is what the helper actually needs.
+
 ## [0.1.9] — 2026-10-12
 
 Still a pre-release: Python regressions are exercised off-device; the Swift helper
