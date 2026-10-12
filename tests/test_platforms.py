@@ -69,6 +69,25 @@ class MacPlannerTests(unittest.TestCase):
     def agents(self):
         return pathlib.Path(self.home) / 'Library' / 'LaunchAgents'
 
+    def test_desktop_state_reports_every_screen_and_its_wallpaper(self):
+        """The helper's `screens` output is the only per-display source on macOS.
+
+        Reading the main screen alone is what let a second display keep an older
+        image while the same-day check reported the desktop as up to date.
+        """
+        lines = ('0\tBuilt-in Retina Display\t1728x1117\tscale 2.0\t/cache/image-aaa.jpg\n'
+                 '1\tLG UltraFine\t1920x1080\tscale 2.0\t/cache/current.jpg\n'
+                 '2\tNo wallpaper yet\t1920x1080\tscale 1.0\t\n'
+                 'malformed line without tabs\n')
+        self.runner.stdout_for = lambda argv: lines
+        platform, _ = self.build()
+        with patch.object(platform, 'helper', return_value='/fake/paperdrop-set'):
+            state = platform.desktop_state()
+        self.assertEqual(state, [
+            ('screen 0 Built-in Retina Display', '/cache/image-aaa.jpg'),
+            ('screen 1 LG UltraFine', '/cache/current.jpg'),
+            ('screen 2 No wallpaper yet', None)])
+
     def test_resident_watch_passes_cache_directory_not_startup_image(self):
         from paperdrop.cache import Cache
         cache = Cache(self.home / 'cache')
@@ -400,6 +419,14 @@ class XfceTests(unittest.TestCase):
         platform, _ = self.build()
         self.assertEqual(platform.current(), '/old/wall.jpg')
         self.assertEqual(len(platform.current_all()), 3)
+
+    def test_desktop_state_reports_every_monitor_and_workspace(self):
+        platform, _ = self.build()
+        state = platform.desktop_state()
+        self.assertEqual(len(state), 3, 'both monitors and both workspaces')
+        for prop, value in state:
+            self.assertTrue(prop.startswith('/backdrop/') and prop.endswith('/last-image'))
+            self.assertEqual(value, '/old/wall.jpg')
 
     def test_a_missing_session_is_a_helpful_error(self):
         config = validate({'source': {'url': 'https://example.test/desk.json'}})

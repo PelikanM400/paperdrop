@@ -69,7 +69,7 @@ class CliTests(unittest.TestCase):
         self.patcher.start()
         self.addCleanup(self.patcher.stop)
 
-    def write_config(self, url=None, mode='manifest'):
+    def write_config(self, url=None, mode='manifest', **extra):
         payload = {
             'source': {'mode': mode, 'url': url or self.server.base + '/desk.json',
                        'image_mode_acknowledged': mode == 'image'},
@@ -78,6 +78,7 @@ class CliTests(unittest.TestCase):
             'log': {'path': str(self.root / 'state' / 'paperdrop.log')},
             'http': {'allow_http': True, 'retries': 1},
         }
+        payload.update(extra)
         self.config_path.write_text(json.dumps(payload), encoding='utf-8')
         return payload
 
@@ -92,7 +93,7 @@ class CliTests(unittest.TestCase):
         from paperdrop.paths import Paths
         from paperdrop.config import validate
         from paperdrop.state import State
-        self.write_config()
+        self.write_config(schedule={'screen_poll_seconds': 0})   # polling has its own test
         code, _, _ = self.invoke('run', '--json')
         self.assertEqual(code, 0)
         config = validate(json.loads(self.config_path.read_text()))
@@ -131,6 +132,7 @@ class CliTests(unittest.TestCase):
         seen = []
         self.platform.supports_screen_watch = True
         self.platform.watch = lambda cache_dir, lock_file=None: (seen.append(cache_dir), 0)[1]
+        self.write_config(schedule={'screen_poll_seconds': 0})   # polling has its own test
         holder = FileLock(paths.lock_file)
         holder.acquire()                       # an updater is mid-run
         try:
@@ -139,6 +141,65 @@ class CliTests(unittest.TestCase):
             holder.release()
         self.assertEqual(code, 0, err)
         self.assertEqual(seen, [str(paths.cache_dir)])
+
+    def test_watch_polls_every_screen_beside_the_native_watcher(self):
+        """macOS never delivered the screen-change notification: the poll is the net.
+
+        The native helper keeps running for the events it does receive; the poll asks
+        the desktop for every screen, so a display that comes back with the wallpaper
+        it remembered is noticed even when no event arrives.
+        """
+        from paperdrop.paths import Paths
+        from paperdrop.config import validate
+        self.write_config()
+        code, _, _ = self.invoke('run', '--json')
+        self.assertEqual(code, 0)
+        config = validate(json.loads(self.config_path.read_text()))
+        paths = Paths.from_config(config, self.config_path)
+        started = threading.Event()
+        native = []
+
+        def watch(cache_dir, lock_file=None):
+            native.append(cache_dir)
+            started.set()
+            return 0
+
+        self.platform.supports_screen_watch = True
+        self.platform.watch = watch
+        polls = []
+
+        def poll(config_arg, paths_arg, platform_arg, **kwargs):
+            polls.append((kwargs.get('interval'), platform_arg is self.platform))
+            return 0
+
+        with patch('paperdrop.cli.screen_poll_loop', side_effect=poll) as loop:
+            code, _, err = self.invoke('watch')
+        self.assertEqual(code, 0, err)
+        self.assertEqual(loop.call_count, 1)
+        self.assertTrue(started.wait(5), 'the native watcher must run beside the poll')
+        self.assertEqual(native, [str(paths.cache_dir)])
+        self.assertEqual(polls, [(30, True)])
+
+    def test_screen_polling_can_be_turned_off(self):
+        """schedule.screen_poll_seconds = 0 leaves the native events alone."""
+        from paperdrop.pipeline import apply_cached
+        from paperdrop.paths import Paths
+        from paperdrop.config import validate
+        self.write_config(schedule={'screen_poll_seconds': 0})
+        code, _, _ = self.invoke('run', '--json')
+        self.assertEqual(code, 0)
+        config = validate(json.loads(self.config_path.read_text()))
+        paths = Paths.from_config(config, self.config_path)
+        native = []
+        self.platform.supports_screen_watch = True
+        self.platform.watch = lambda cache_dir, lock_file=None: (native.append(cache_dir), 0)[1]
+        with patch('paperdrop.cli.screen_poll_loop',
+                   side_effect=AssertionError('polling is off')), \
+                patch('paperdrop.cli.apply_cached', wraps=apply_cached) as applied:
+            code, _, err = self.invoke('watch')
+        self.assertEqual(code, 0, err)
+        self.assertEqual(native, [str(paths.cache_dir)])
+        self.assertEqual(applied.call_count, 1, 'the initial offline apply still happens')
 
     def test_print_example_config_needs_no_config_file(self):
         out = io.StringIO()

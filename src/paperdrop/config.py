@@ -31,7 +31,7 @@ SCHEMA = {
     'apply': {'screens': 'all', 'scaling': 'fill', 'helper_path': '', 'xfce_image_style': None,
               'confirm_attempts': 5, 'confirm_delay_seconds': 0.8},
     'schedule': {'daily_time': '07:35', 'catch_up_on_login': True, 'watch_screen_changes': True,
-                 'catch_up_interval_minutes': 60},
+                 'catch_up_interval_minutes': 60, 'screen_poll_seconds': 30},
 }
 
 MODES = ('manifest', 'image')
@@ -111,6 +111,10 @@ def validate(config):
     if isinstance(catch_up, bool) or not isinstance(catch_up, int) or catch_up < 0:
         raise ConfigError('schedule.catch_up_interval_minutes must be an integer >= 0 '
                           '(0 disables the periodic catch-up).')
+    poll = merged['schedule']['screen_poll_seconds']
+    if isinstance(poll, bool) or not isinstance(poll, int) or poll < 0:
+        raise ConfigError('schedule.screen_poll_seconds must be an integer >= 0 '
+                          '(0 disables the resident watcher\'s screen poll).')
     for key in ('timeout_seconds', 'retries', 'max_redirects', 'max_bytes'):
         _require_positive_int(merged['http'], key, minimum=1)
     _require_positive_int(merged['verify'], 'max_pixels', minimum=1)
@@ -198,11 +202,16 @@ def example_config():
                               '0 disables it. catch_up_on_login adds a run at login (macOS '
                               'RunAtLoad; systemd Persistent on Linux), and '
                               'watch_screen_changes installs the resident macOS watcher that '
-                              're-applies the image after a screen change or a wake. Both are '
-                              'read by the installer: change them, then run '
-                              '"paperdrop install" again.'),
+                              're-applies the image after a screen change or a wake. '
+                              'screen_poll_seconds is how often that watcher asks the desktop '
+                              'for every screen, because a display reconnected after a run can '
+                              'come back with the wallpaper it remembered without any event '
+                              'reaching us (0 turns the poll off). All of them are read at run '
+                              'time: change them and run "paperdrop install" again for the '
+                              'ones the installer uses.'),
         'schedule': {'daily_time': '07:35', 'catch_up_on_login': True,
-                     'watch_screen_changes': True, 'catch_up_interval_minutes': 60},
+                     'watch_screen_changes': True, 'catch_up_interval_minutes': 60,
+                     'screen_poll_seconds': 30},
     }
 
 

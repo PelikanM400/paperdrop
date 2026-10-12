@@ -49,9 +49,9 @@ Honesty matters more than a longer feature list here.
 
 | Platform | Status | Verified | Not yet verified |
 |---|---|---|---|
-| **macOS** | Implemented; **mostly verified on real hardware** | On one machine (MacBook Air M5, macOS 27.0.1, two displays): the Swift helper compiles and runs; both screens are filled with the same image without stretching; **every desktop space updates**; an external display reconnected by hand comes back with the cached image; sleep and wake leave the wallpaper intact; the LaunchAgent loads, runs `paperdrop` when launched and when triggered by hand, exits 0, and records each run. | The calendar trigger firing at its configured time on its own; the periodic catch-up after a wake; the login catch-up; the Gatekeeper prompt (the locally built helper was not quarantined on that machine) |
+| **macOS** | Implemented; **mostly verified on real hardware** | On one machine (MacBook Air M5, macOS 27.0.1, two displays): the Swift helper compiles and runs; both screens are filled with the same image without stretching; **every desktop space updates**; sleep and wake leave the wallpaper intact; the LaunchAgent loads, runs `paperdrop` when launched and when triggered by hand, exits 0, and records each run. **Withdrawn in 0.1.12:** this table used to claim that an external display reconnected by hand comes back with the cached image. A second Mac (macOS 27.0.1, LG UltraFine) showed that the screen-parameter notification never reaches the headless helper at all — only wake events did — and its external display kept the wallpaper it remembered until the screen was polled. | The calendar trigger firing at its configured time on its own; the periodic catch-up after a wake; the login catch-up; the screen-parameter notification itself (since 0.1.12 a poll of every screen is what repairs a reconnected display); the Gatekeeper prompt (the locally built helper was not quarantined on that machine) |
 | **Linux (Xfce)** | Implemented; **partly verified on real hardware** | On one machine (Linux Mint, Xfce channel `xfce4-desktop`, Python 3.12.3, `xfconf-query` on PATH, one graphical session): `paperdrop doctor` reports every check ok; a run downloaded, SHA-256-verified and cached the image and set **all 15 backdrop `last-image` properties** to it on a multi-monitor, four-workspace setup (five monitor identifiers, workspaces 0-3 on each); the systemd user timer was written and is enabled; the cached hash was the same image the macOS machine cached that day. | A run triggered by the timer at its configured time (only a hand-run `paperdrop run` was observed); behaviour after a reboot; a monitor attached while the session is running (Linux has no resident watcher); fill-without-stretching still depends on the background style the user sets by hand |
-| Both | The shared core: config, manifest parsing, transfer limits, verification, cache, state, lock, logging. Plus the platform artifacts we cannot run here: launchd plists, systemd units, Xfce property handling — and the generated command line is executed by the suite, so a scheduler entry that cannot run fails the tests | Covered by the automated test suite (170 tests) — no network, no real desktop | — |
+| Both | The shared core: config, manifest parsing, transfer limits, verification, cache, state, lock, logging. Plus the platform artifacts we cannot run here: launchd plists, systemd units, Xfce property handling — and the generated command line is executed by the suite, so a scheduler entry that cannot run fails the tests | Covered by the automated test suite (181 tests) — no network, no real desktop | — |
 
 macOS Spaces is the one to be careful about: the AppKit call is **per screen**,
 and Apple's documentation promises nothing about all Spaces. One real machine
@@ -119,7 +119,10 @@ paperdrop install
 
 - **macOS:** writes two LaunchAgents in `~/Library/LaunchAgents` — a daily run
   (plus login) and a resident watcher that re-applies the cached image when the
-  display layout changes.
+  display layout changes. That watcher also asks the desktop for every screen
+  every `schedule.screen_poll_seconds` (30 by default): the native screen-change
+  notification is not always delivered (see the table above), and a display that
+  comes back with its own wallpaper is otherwise only noticed an hour later.
 - **Linux/Xfce:** writes a systemd **user** service and timer with
   `Persistent=true`, so a run missed while the machine was off happens once at
   the next login.
@@ -212,7 +215,7 @@ image to confirm the SHA-256 matches. It writes nothing to your cache.
 | `paperdrop pause` / `resume` | Stop or restart the schedule without removing it. A pause survives a restart: the agent files are parked outside the directory launchd auto-loads. |
 | `paperdrop doctor` | Check Python, Pillow, the desktop, the helper and the writable paths. |
 | `paperdrop apply-cached` | Re-apply the cached image, no network. |
-| `paperdrop watch` | Apply the cache, then re-apply when the screen layout changes (macOS). |
+| `paperdrop watch` | Apply the cache, then keep every screen up to date: native layout and wake events plus a poll of all screens (macOS). |
 
 Add `--json` for machine-readable output, anywhere on the command line.
 

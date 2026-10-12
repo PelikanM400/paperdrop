@@ -113,6 +113,15 @@ class Xfce(Platform):
         # Every screen and workspace is meant to show the same image.
         return values[0][1]
 
+    def desktop_state(self):
+        """Every monitor/workspace image property, so a stale one is visible as stale.
+
+        xfconf keeps a property per monitor and workspace, including monitors that
+        are not connected right now; Xfce restores that property when a display is
+        reconnected, which is exactly the case this needs to notice.
+        """
+        return self.current_all()
+
     def watch(self, image_path):
         raise PlatformError('Screen-change watching is not implemented for Xfce. '
                             'Xfce restores each monitor\'s own backdrop when a display is '

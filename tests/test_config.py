@@ -120,6 +120,25 @@ class ConfigTests(unittest.TestCase):
         self.assertIsNone(config['apply']['xfce_image_style'])
         self.assertTrue(config['schedule']['catch_up_on_login'])
 
+    def test_the_shipped_default_screen_poll_is_30_seconds(self):
+        # How often the resident watcher asks the desktop for every screen. The
+        # example config has to agree with the default.
+        self.write({'source': {'url': 'https://example.test/m.json'}})
+        config, _ = load_config(self.path)
+        self.assertEqual(config['schedule']['screen_poll_seconds'], 30)
+        self.assertEqual(example_config()['schedule']['screen_poll_seconds'], 30)
+
+    def test_screen_poll_seconds_must_be_a_non_negative_integer(self):
+        for bad in (-1, 1.5, '30', True):
+            with self.subTest(value=bad):
+                self.write({'source': {'url': 'https://example.test/m.json'},
+                            'schedule': {'screen_poll_seconds': bad}})
+                with self.assertRaises(ConfigError):
+                    load_config(self.path)
+        self.write({'source': {'url': 'https://example.test/m.json'},
+                    'schedule': {'screen_poll_seconds': 0}})
+        self.assertEqual(load_config(self.path)[0]['schedule']['screen_poll_seconds'], 0)
+
     def test_unsupported_scaling_is_rejected(self):
         self.write({'source': {'url': 'https://example.test/m.json'},
                     'apply': {'scaling': 'stretch'}})

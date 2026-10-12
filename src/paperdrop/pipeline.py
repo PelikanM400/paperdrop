@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from .cache import Cache
-from .errors import PaperDropError
+from .errors import BusyError, PaperDropError
 from .fetch import Fetcher
 from .lock import FileLock
 from .sources import Target, resolve_source
@@ -64,13 +64,29 @@ class RunResult:
 
 
 def _display_matches(platform, expected_path):
+    expected = str(expected_path)
+    # Ask for every screen, not just the main one: macOS restores a display's own
+    # wallpaper when it is reconnected, and reading the main screen alone reported
+    # the desktop as up to date while a second display still showed the old image.
+    try:
+        state = platform.desktop_state()
+    except (OSError, PaperDropError):
+        state = []
+    if state:
+        wrong = [(target, path) for target, path in state if str(path) != expected]
+        if not wrong:
+            return True, 'all %d screens show the cached image' % len(state)
+        return False, '%d of %d screens do not show the cached image: %s' % (
+            len(wrong), len(state),
+            '; '.join('%s shows %s' % (target, path or 'nothing')
+                      for target, path in wrong[:4]))
     try:
         applied = platform.current()
     except (OSError, PaperDropError) as error:
         return False, 'could not read the desktop state: %s' % error
     if not applied:
         return False, 'the desktop did not report a wallpaper'
-    if str(applied) != str(expected_path):
+    if str(applied) != expected:
         return False, 'the desktop shows %s' % applied
     return True, 'the desktop shows the cached image'
 
@@ -316,6 +332,71 @@ def apply_cached(config, paths, platform, logger=None):
         platform.apply(cached)
         logger.info('applied the cached image %s', cached)
         return cached
+
+
+POLL_REPAIR_ATTEMPTS = 3
+
+
+def screen_poll_seconds(config):
+    """schedule.screen_poll_seconds: how often the watcher asks for every screen."""
+    return int((config.get('schedule') or {}).get('screen_poll_seconds', 30) or 0)
+
+
+def screen_poll_loop(config, paths, platform, logger=None, sleeper=None, interval=None,
+                     iterations=None):
+    """Re-apply the cached image when a screen changes without an event reaching us.
+
+    The resident watcher only learns what its notifications report, and macOS never
+    delivered the screen-parameter notification to the headless helper (its log held
+    wake events only): a display reconnected after a run kept the wallpaper it had
+    remembered, while the same-day check read the main screen and called the desktop
+    up to date. Asking for every screen on a slow timer closes that gap. Each new
+    desktop state gets at most POLL_REPAIR_ATTEMPTS applies, so a screen that cannot
+    be fixed is not re-applied forever.
+
+    `iterations` exists for tests; production runs until the process ends.
+    """
+    logger = logger or logging.getLogger(LOGGER_NAME)
+    sleeper = sleeper or time.sleep
+    if interval is None:
+        interval = screen_poll_seconds(config)
+    if interval <= 0:
+        logger.info('screen polling is off (schedule.screen_poll_seconds = 0)')
+        return 0
+    seen = None
+    attempts = 0
+    ticks = 0
+    while iterations is None or ticks < iterations:
+        ticks += 1
+        sleeper(interval)
+        try:
+            cached = Cache(paths.cache_dir).current()
+            state = platform.desktop_state()
+        except (OSError, PaperDropError) as error:
+            logger.warning('screen check skipped: %s', error)
+            continue
+        if not state:
+            continue
+        signature = tuple(sorted((str(target), str(path)) for target, path in state))
+        if signature != seen:
+            seen, attempts = signature, 0
+        expected = str(cached) if cached is not None else None
+        wrong = [target for target, path in state
+                 if expected is None or str(path) != expected]
+        if not wrong:
+            continue
+        if attempts >= POLL_REPAIR_ATTEMPTS:
+            continue
+        attempts += 1
+        logger.info('%d of %d screens do not show the cached image; re-applying',
+                    len(wrong), len(state))
+        try:
+            apply_cached(config, paths, platform, logger=logger)
+        except BusyError as error:
+            logger.info('an updater is already running; leaving the apply to it: %s', error)
+        except (OSError, PaperDropError) as error:
+            logger.warning('could not re-apply the cached image: %s', error)
+    return 0
 
 
 def run_once(config, paths, platform, fetcher=None, now=None, force=False,

@@ -9,6 +9,7 @@ import argparse
 import json
 import logging
 import sys
+import threading
 
 from . import __version__
 from .config import ENV_CONFIG, ConfigError, example_config, load_config, validate
@@ -16,7 +17,7 @@ from .errors import BusyError, PaperDropError
 from .journal import build_logger
 from .lock import FileLock
 from .paths import Paths
-from .pipeline import apply_cached, run_once
+from .pipeline import apply_cached, run_once, screen_poll_loop, screen_poll_seconds
 from .platforms import detect_platform
 from .state import State
 from .cache import Cache
@@ -301,7 +302,7 @@ def _apply_cached(args, config, paths):
 
 
 def _watch(args, config, paths):
-    """Resident helper: apply the cache now, then re-apply on screen changes."""
+    """Resident helper: apply the cache now, then keep every screen up to date."""
     platform = _platform(config)
     if not platform.supports_screen_watch:
         print('paperdrop: this platform does not support screen watching yet.', file=sys.stderr)
@@ -316,8 +317,21 @@ def _watch(args, config, paths):
     except BusyError as error:
         LOG.info('an updater is already running; the resident helper applies the active '
                  'image itself: %s', error)
-    LOG.info('watching for screen configuration changes')
-    return platform.watch(str(paths.cache_dir), lock_file=paths.lock_file)
+    interval = screen_poll_seconds(config)
+    if interval <= 0:
+        LOG.info('watching for screen configuration changes')
+        return platform.watch(str(paths.cache_dir), lock_file=paths.lock_file)
+    # The helper's own notifications are not enough: macOS never delivered the
+    # screen-parameter notification to the headless helper (only wake events
+    # arrived), so a display reconnected after a run kept the wallpaper it
+    # remembered. Keep the helper for the events it does receive and poll the
+    # desktop for every screen beside it.
+    threading.Thread(target=platform.watch, args=(str(paths.cache_dir),),
+                     kwargs={'lock_file': paths.lock_file}, daemon=True,
+                     name='paperdrop-native-watch').start()
+    LOG.info('watching for screen configuration changes (native events plus a poll '
+             'every %ds)', interval)
+    return screen_poll_loop(config, paths, platform, logger=LOG, interval=interval)
 
 
 def _doctor(args):

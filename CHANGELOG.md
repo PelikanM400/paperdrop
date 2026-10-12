@@ -6,6 +6,28 @@ All notable changes to PaperDrop are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.12] — 2026-10-12
+
+Still a pre-release: Python regressions are exercised off-device; the Swift helper
+requires local compilation and real-Mac visual acceptance.
+
+### Fixed
+- A second display that kept an older wallpaper is now noticed and repaired. The
+  desktop state was read from the main screen alone, so the same-day check — and
+  the hourly catch-up built on it — answered "already up to date" while an
+  external screen stayed on the previous image, which is what a laptop docked
+  after the daily run reported.
+- The resident watcher now polls every screen as well as listening for the native
+  events, because macOS never delivered the screen-parameter notification to the
+  headless helper (its log held wake events only): a display reconnected after a
+  run came back with the wallpaper it remembered and no event arrived to fix it.
+  Each new desktop state is repaired at most three times, so a screen that cannot
+  be fixed is not re-applied in a loop.
+
+### Added
+- `schedule.screen_poll_seconds` (default 30, `0` disables the poll and leaves the
+  native events): how often the resident watcher asks the desktop for every screen.
+
 ## [0.1.11] — 2026-10-12
 
 Still a pre-release: Python regressions are exercised off-device; the Swift helper

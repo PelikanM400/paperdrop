@@ -109,17 +109,23 @@ class FakeFetcher:
 
 
 class FakePlatform:
-    """Records applied paths; `reports` controls what `current()` returns."""
+    """Records applied paths; `reports` controls what `current()` returns.
+
+    `screens` models a desktop with several displays: a list of
+    (target, wallpaper path) pairs. Leave it None for a desktop that can only
+    report one wallpaper, which is what `current()` falls back to.
+    """
 
     name = 'fake'
     supports_screen_watch = False
 
-    def __init__(self, reports=None, apply_effective=True):
+    def __init__(self, reports=None, apply_effective=True, screens=None):
         self.applied = []
         self.reports = reports
         self.apply_effective = apply_effective
         self.fail_with = None
         self.apply_calls = 0
+        self.screens = None if screens is None else [tuple(entry) for entry in screens]
 
     def apply(self, image_path):
         self.apply_calls += 1
@@ -128,10 +134,16 @@ class FakePlatform:
         self.applied.append(str(image_path))
         if self.apply_effective:
             self.reports = str(image_path)
+            if self.screens is not None:
+                # A real apply sets the same image on every screen.
+                self.screens = [(target, str(image_path)) for target, _ in self.screens]
         return [str(image_path)]
 
     def current(self):
         return self.reports
+
+    def desktop_state(self):
+        return [] if self.screens is None else list(self.screens)
 
     def doctor(self):
         return []

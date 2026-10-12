@@ -146,6 +146,7 @@ launchctl list | grep paperdrop
 |---|---|---|
 | `schedule.catch_up_on_login` | a run at login, which also covers a machine that was off at the daily time (`RunAtLoad`) | nothing runs at login; the hourly catch-up picks the work up instead |
 | `schedule.watch_screen_changes` | installs the resident watcher that re-applies the image after a screen change or a wake | no resident watcher; `paperdrop install` removes the agent a previous install left behind |
+| `schedule.screen_poll_seconds` | how often the resident watcher asks the desktop for every screen (30 seconds by default) — this is what repairs a display that comes back with its own wallpaper | `0` turns the poll off and leaves the native screen-change and wake events |
 
 `paperdrop pause` unloads both agents *and* parks their files outside
 `~/Library/LaunchAgents`, so a pause survives a restart — launchd would otherwise

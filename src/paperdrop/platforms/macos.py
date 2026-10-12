@@ -5,10 +5,14 @@ applying one image file to every screen with aspect-preserving fill, and
 re-applying it when the display configuration changes.
 
 PARTLY VERIFIED on one machine (MacBook Air M5, macOS 27.0.1, two displays):
-applying, dual-screen fill without stretching, all desktop spaces updating,
-external-display reconnection and wake-from-sleep all behaved. Still unverified
-there: the scheduled runs themselves (LaunchAgent timing, login catch-up,
-periodic catch-up after a wake) and what a quarantined helper looks like.
+applying, dual-screen fill without stretching, all desktop spaces updating and
+wake-from-sleep behaved. Reconnecting an external display appeared to work on
+that machine, but a second Mac showed that the screen-parameter notification
+never reaches the headless helper at all (only wake events arrived) and its
+external display kept the old image: the reconnection case is not treated as
+verified, and `screen_poll_loop` is what covers it. Still unverified there: the
+scheduled runs themselves (LaunchAgent timing, login catch-up, periodic catch-up
+after a wake) and what a quarantined helper looks like.
 """
 from __future__ import annotations
 
@@ -84,6 +88,22 @@ class MacOS(Platform):
     def screens(self):
         result = self._helper('screens')
         return [line for line in (result.stdout or '').splitlines() if line.strip()]
+
+    def desktop_state(self):
+        """One entry per screen: ('screen <index> <name>', wallpaper path or None).
+
+        The helper's `screens` output is tab separated (index, name, geometry,
+        scale, path). A line that does not parse is skipped: guessing about a
+        screen would be worse than leaving it out.
+        """
+        state = []
+        for line in self.screens():
+            fields = [field.strip() for field in line.split('\t')]
+            if len(fields) < 5:
+                continue
+            index, name, _geometry, _scale, path = fields[:5]
+            state.append(('screen %s %s' % (index, name), path or None))
+        return state
 
     def watch(self, cache_dir, lock_file):
         """Each native resolve/apply event uses the configured updater lock.

@@ -39,6 +39,16 @@ class Platform:
         """Return the currently applied wallpaper path, or None if unknown."""
         raise NotImplementedError
 
+    def desktop_state(self) -> list:
+        """Return [(target, wallpaper path), ...] for every screen or desktop entry.
+
+        `current()` answers for one screen, which is not enough to notice a second
+        display that kept an older image (AppKit reports the main screen only). A
+        platform that can see all of its screens returns them here; returning an
+        empty list means "cannot tell", and callers fall back to `current()`.
+        """
+        return []
+
     def watch(self, cache_dir, lock_file=None) -> int:
         """Block, re-resolving and re-applying the active cache image on every event."""
         raise PlatformError('%s: watching for screen changes is not supported.' % self.name)

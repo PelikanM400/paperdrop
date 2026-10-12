@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 import pathlib
 import tempfile
 import unittest
@@ -15,7 +16,7 @@ from paperdrop.cache import Cache
 from paperdrop.errors import FetchError, PlatformError
 from paperdrop.fetch import Response
 from paperdrop.paths import Paths
-from paperdrop.pipeline import apply_cached, run_once
+from paperdrop.pipeline import apply_cached, run_once, screen_poll_loop
 from paperdrop.state import State
 from paperdrop.util import sha256_hex
 
@@ -38,6 +39,17 @@ class PathCachingDesktop(support.FakePlatform):
             self.pixels_by_path[path] = pathlib.Path(path).read_bytes()
         self.visible = self.pixels_by_path[path]
         return result
+
+
+class _Collect(logging.Handler):
+    """Keeps the log lines a test wants to assert on."""
+
+    def __init__(self, sink):
+        super().__init__()
+        self.sink = sink
+
+    def emit(self, record):
+        self.sink.append(record.getMessage())
 
 
 class PipelineTests(unittest.TestCase):
@@ -602,6 +614,103 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result.outcome, 'reapplied')
         self.assertEqual(platform.applied, [str(cached)])
         self.assertEqual(fetcher.requests, [], 'check mode must not touch the network')
+
+    def test_a_second_screen_showing_an_older_wallpaper_is_repaired_without_downloading(self):
+        """The reported bug: the main screen is up to date, an external one is not.
+
+        The desktop state used to be read from the main screen alone, so the same-day
+        check answered "already up to date" while a second display kept the wallpaper
+        it had before (macOS restores a display's own image when it is reconnected).
+        """
+        config, paths, fetcher = self.build()
+        self.run_once(config, paths, fetcher)
+        cached = Cache(paths.cache_dir).current()
+        platform = support.FakePlatform(
+            reports=str(cached),
+            screens=[('screen 0 Built-in Retina Display', str(cached)),
+                     ('screen 1 LG UltraFine', '/old/current.jpg')])
+        fetcher.requests.clear()
+        result, platform = self.run_once(config, paths, fetcher, platform=platform)
+        self.assertEqual(result.outcome, 'reapplied')
+        self.assertEqual(platform.applied, [str(cached)])
+        self.assertEqual(fetcher.requests, [], 'repairing a screen must not touch the network')
+
+    def test_the_repair_report_names_the_screen_that_does_not_match(self):
+        config, paths, fetcher = self.build()
+        self.run_once(config, paths, fetcher)
+        cached = Cache(paths.cache_dir).current()
+        platform = support.FakePlatform(
+            reports=str(cached),
+            screens=[('screen 0 Built-in Retina Display', str(cached)),
+                     ('screen 1 LG UltraFine', '/old/current.jpg')])
+        messages = []
+        logger = logging.getLogger('paperdrop-repair-detail')
+        logger.handlers.clear()
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        logger.addHandler(_Collect(messages))
+        self.run_once(config, paths, fetcher, platform=platform, logger=logger)
+        joined = '\n'.join(messages)
+        self.assertIn('LG UltraFine', joined)
+        self.assertNotIn('Built-in Retina Display', joined,
+                         'the screen that is already correct must not be reported as wrong')
+
+    def test_a_screen_that_appears_while_watching_is_repaired(self):
+        """Reconnecting a display is the case the native event never delivered.
+
+        macOS restores that display's own wallpaper; the poll sees a new entry that
+        does not show the cached image and re-applies it once.
+        """
+        config, paths, fetcher = self.build()
+        self.run_once(config, paths, fetcher)
+        cached = Cache(paths.cache_dir).current()
+        platform = support.FakePlatform(
+            reports=str(cached),
+            screens=[('screen 0 Built-in Retina Display', str(cached))])
+        slept = []
+
+        def sleeper(seconds):
+            slept.append(seconds)
+            if len(slept) == 1:
+                # the external display comes back with the image it remembered
+                platform.screens.append(('screen 1 LG UltraFine', '/old/current.jpg'))
+
+        self.assertEqual(screen_poll_loop(config, paths, platform, logger=self.logger,
+                                          sleeper=sleeper, iterations=3), 0)
+        self.assertEqual(platform.applied, [str(cached)])
+        self.assertEqual(slept, [30, 30, 30], 'the poll interval comes from the config')
+
+    def test_a_screen_that_stays_wrong_is_not_retried_forever(self):
+        """A display that keeps its own wallpaper must not cause an endless loop."""
+        config, paths, fetcher = self.build()
+        self.run_once(config, paths, fetcher)
+        cached = Cache(paths.cache_dir).current()
+
+        class StubbornScreen(support.FakePlatform):
+            def apply(self, image_path):
+                result = super().apply(image_path)
+                target, _ = self.screens[-1]
+                self.screens[-1] = (target, '/old/current.jpg')
+                return result
+
+        platform = StubbornScreen(reports=str(cached),
+                                  screens=[('screen 0 Built-in Retina Display', str(cached)),
+                                           ('screen 1 LG UltraFine', '/old/current.jpg')])
+        screen_poll_loop(config, paths, platform, logger=self.logger,
+                         sleeper=lambda seconds: None, iterations=8)
+        self.assertEqual(platform.apply_calls, 3)
+
+    def test_screen_polling_is_off_when_the_interval_is_zero(self):
+        """The switch has to be read, not merely accepted by the config loader."""
+        config, paths, fetcher = self.build()
+        config['schedule']['screen_poll_seconds'] = 0
+        platform = support.FakePlatform(reports='/old/current.jpg',
+                                        screens=[('screen 0 Built-in Display', '/old/current.jpg')])
+        slept = []
+        self.assertEqual(screen_poll_loop(config, paths, platform, logger=self.logger,
+                                          sleeper=slept.append, iterations=3), 0)
+        self.assertEqual(slept, [])
+        self.assertEqual(platform.apply_calls, 0)
 
     def test_check_mode_is_silent_when_everything_is_fine(self):
         config, paths, fetcher = self.build()
