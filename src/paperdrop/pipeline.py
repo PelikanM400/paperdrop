@@ -3,7 +3,9 @@
 Ordering rules (deliberate):
 
 1. A run that already succeeded today only re-checks the desktop state; it does
-   not download and does not force the wallpaper to be re-applied.
+   not download and does not force the wallpaper to be re-applied. A success whose
+   source is older than today (or undated, for a manifest) reads the source once
+   first — see _source_is_fresh.
 2. When the source gives a SHA-256 and the cached image already matches it, the
    image is not downloaded again.
 3. Bytes are verified *before* they are published into the cache.
@@ -14,6 +16,7 @@ from __future__ import annotations
 import datetime
 import logging
 import pathlib
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -28,6 +31,34 @@ from .util import sha256_hex
 from .verify import check_bytes, check_image, extension_for
 
 LOGGER_NAME = 'paperdrop'
+
+# A manifest's `date` is only *recommended* in the spec, and its value is not
+# format-checked when the manifest is parsed, so a freshness comparison may only
+# trust a padded ISO date: '2026-1-1' sorts after '2026-01-02' as text. The digits
+# are spelled out because `\d` is Unicode-aware and would accept '٢٠٣٠-٠١-٠١', which
+# sorts after any ASCII date.
+SOURCE_DATE_RE = re.compile(r'^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+
+
+def _source_is_fresh(success, today):
+    """True when the last success already fetched a publication that is not stale.
+
+    A source dated today or later is fresh. A value that is missing, or that is not
+    a padded ISO date ('2026-1-1', 'unknown'), is not comparable — comparing it as
+    text is what let a post-midnight run mask a whole day, so it counts as stale.
+
+    The one exception is a source where re-checking is expensive: an `image` source
+    with no ETag or Last-Modified recorded, where a check re-downloads the whole
+    picture. A manifest is cheap to re-read (≤256 KiB) and its sha comparison
+    suppresses the image download, so an undatable manifest state is stale.
+    """
+    value = success.get('source_date')
+    if isinstance(value, str) and SOURCE_DATE_RE.match(value.strip()):
+        return value.strip() >= today
+    if success.get('mode') == 'image' and not (success.get('etag')
+                                               or success.get('last_modified')):
+        return True
+    return False
 
 
 @dataclass
@@ -162,7 +193,25 @@ def _perform_run(config, paths, platform, fetcher=None, now=None, force=False,
     if success and not same_source and success.get('local_date') == today:
         logger.info('the configured source changed since the last success; '
                     'the same-day shortcut does not apply')
-    if not force and same_source and success.get('local_date') == today:
+    # "A run succeeded today" is not the same as "today's image is already cached".
+    # A run between midnight and the daily publication resolves *yesterday's*
+    # manifest and still records today as its local date; keying the shortcut on
+    # that alone silenced every later check that day (reported 2026-10-13: a 00:41
+    # run left the 07:35 and 09:00 checks answering "already up to date" with zero
+    # network requests, so the machine kept yesterday's wallpaper all day). The
+    # source has to be at least as new as today — a source dated ahead (clock skew,
+    # or a feed that dates its next publication) still counts as fresh, so a repeat
+    # run stays as cheap as it was.
+    #
+    # A state whose source date is missing or unusable (an older version wrote it, or
+    # the source does not date its images) counts as stale unless re-checking would
+    # re-download a whole image — see _source_is_fresh.
+    fresh_source = bool(success) and _source_is_fresh(success, today)
+    if (not force and same_source and success.get('local_date') == today
+            and not fresh_source):
+        logger.info('the last success was for source date %s, not %s: reading the '
+                    'source again', success.get('source_date'), today)
+    if not force and same_source and fresh_source and success.get('local_date') == today:
         cached = cache.current()
         cached_ok = (cached is not None and cached.is_file()
                      and _cached_sha(cached) == success.get('image_sha256'))

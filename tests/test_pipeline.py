@@ -151,17 +151,31 @@ class PipelineTests(unittest.TestCase):
                     local_date=NOW.date().isoformat())
                 result, _ = self.run_once(config, paths, fetcher, platform=platform,
                                           check_only=check_only)
-                self.assertEqual(platform.visible, self.image)
-                self.assertEqual(result.outcome, 'reapplied')
-                self.assertEqual(fetcher.requests, [])
+                # A state with no source date at all (a source that never dated its
+                # images, or a state managed by hand) counts as stale: a run reads the
+                # manifest once (the hash matches, nothing is downloaded) and repairs
+                # the desktop from the cache; --check reports instead, because nothing
+                # has confirmed the cached image is today's.
+                self.assertEqual(fetcher.requests,
+                                 [] if check_only else [('GET', MANIFEST_URL)])
                 self.assertFalse(legacy.exists())
                 self.assertEqual(cache.previous().read_bytes(), older)
                 self.assertEqual(cache.current().read_bytes(), self.image)
+                if check_only:
+                    self.assertEqual(result.outcome, 'unchanged')
+                    self.assertEqual(platform.visible, older,
+                                     'a stale state is reported, not applied blindly')
+                    self.assertEqual(platform.apply_calls, 1)
+                    self.assertEqual(State(paths.state_file).load().last_success['cache_path'],
+                                     str(legacy))
+                    continue
+                self.assertEqual(result.outcome, 'unchanged')
+                self.assertEqual(platform.visible, self.image,
+                                 'the desktop is repaired from the verified cache')
                 self.assertEqual(State(paths.state_file).load().last_success['cache_path'],
                                  str(cache.current()))
                 before = platform.apply_calls
-                again, _ = self.run_once(config, paths, fetcher, platform=platform,
-                                         check_only=check_only)
+                again, _ = self.run_once(config, paths, fetcher, platform=platform)
                 self.assertEqual(again.outcome, 'unchanged')
                 self.assertEqual(platform.apply_calls, before)
                 self.assertEqual(State(paths.state_file).load().last_attempt['outcome'],
@@ -180,11 +194,12 @@ class PipelineTests(unittest.TestCase):
         platform = support.FakePlatform(reports=str(legacy))
         platform.fail_with = PlatformError('AppKit rejected repair')
         try:
-            result, _ = self.run_once(config, paths, fetcher, platform=platform, check_only=True)
+            result, _ = self.run_once(config, paths, fetcher, platform=platform)
         except PlatformError as error:
             self.fail('upgrade repair must record its failed attempt: %s' % error)
         self.assertEqual(result.outcome, 'failed')
-        self.assertEqual(fetcher.requests, [])
+        self.assertEqual(fetcher.requests, [('GET', MANIFEST_URL)],
+                         'the stale state is re-checked before anything is applied')
         self.assertEqual(cache.current().read_bytes(), self.image)
         state = State(paths.state_file).load()
         self.assertFalse(state.last_attempt['ok'])
@@ -711,6 +726,169 @@ class PipelineTests(unittest.TestCase):
                                           sleeper=slept.append, iterations=3), 0)
         self.assertEqual(slept, [])
         self.assertEqual(platform.apply_calls, 0)
+
+    def test_a_run_after_midnight_does_not_block_the_days_own_publication(self):
+        """The reported bug: succeed at 00:41 on yesterday's manifest, lose the day.
+
+        The same-day shortcut keyed on "a run succeeded today", but that run resolved
+        *yesterday's* manifest — the daily publication is at 04:30 — so every later
+        check that day answered "already up to date" without reading the source, and
+        the machine kept yesterday's wallpaper until someone ran "paperdrop update".
+        """
+        config, paths, fetcher = self.build()
+        midnight = datetime.datetime(2030, 1, 2, 0, 41, tzinfo=datetime.timezone.utc)
+        yesterday = support.make_image((640, 360), color='red')
+        platform = support.FakePlatform()
+        fetcher.responses[MANIFEST_URL] = Response(
+            url=MANIFEST_URL, status=200,
+            data=support.manifest_for(yesterday, image_url=IMAGE_URL, width=640, height=360,
+                                      date='2030-01-01'),
+            headers={'Content-Type': 'application/json'})
+        fetcher.responses[IMAGE_URL] = Response(url=IMAGE_URL, status=200, data=yesterday)
+        first, _ = self.run_once(config, paths, fetcher, platform=platform, now=midnight)
+        self.assertTrue(first.ok)
+        self.assertEqual(State(paths.state_file).load().last_success['source_date'],
+                         '2030-01-01', "the run was against yesterday's publication")
+
+        today = support.make_image((640, 360), color='blue')
+        fetcher.responses[MANIFEST_URL] = Response(
+            url=MANIFEST_URL, status=200,
+            data=support.manifest_for(today, image_url=IMAGE_URL, width=640, height=360,
+                                      date='2030-01-02'),
+            headers={'Content-Type': 'application/json'})
+        fetcher.responses[IMAGE_URL] = Response(url=IMAGE_URL, status=200, data=today)
+        fetcher.requests.clear()
+        morning = datetime.datetime(2030, 1, 2, 7, 35, tzinfo=datetime.timezone.utc)
+        second, _ = self.run_once(config, paths, fetcher, platform=platform, now=morning)
+        self.assertEqual(second.outcome, 'updated',
+                         "the day's own publication must still be fetched")
+        self.assertEqual(Cache(paths.cache_dir).current().read_bytes(), today)
+        self.assertEqual(fetcher.requests[0], ('GET', MANIFEST_URL),
+                         'the source has to be read again')
+
+    def test_an_after_midnight_check_with_no_new_publication_re_reads_the_source(self):
+        """Until the daily publication lands, the hourly check reads the source again.
+
+        One manifest request and no image download: the cheap check keeps the day
+        unblocked without refetching a wallpaper that has not changed yet.
+        """
+        config, paths, fetcher = self.build()
+        image = support.make_image((640, 360), color='red')
+        platform = support.FakePlatform()
+        fetcher.responses[MANIFEST_URL] = Response(
+            url=MANIFEST_URL, status=200,
+            data=support.manifest_for(image, image_url=IMAGE_URL, width=640, height=360,
+                                      date='2030-01-01'),
+            headers={'Content-Type': 'application/json'})
+        fetcher.responses[IMAGE_URL] = Response(url=IMAGE_URL, status=200, data=image)
+        self.run_once(config, paths, fetcher, platform=platform,
+                      now=datetime.datetime(2030, 1, 2, 0, 41, tzinfo=datetime.timezone.utc))
+        fetcher.requests.clear()
+        result, _ = self.run_once(
+            config, paths, fetcher, platform=platform,
+            now=datetime.datetime(2030, 1, 2, 1, 41, tzinfo=datetime.timezone.utc))
+        self.assertEqual(result.outcome, 'unchanged')
+        self.assertEqual(fetcher.requests, [('GET', MANIFEST_URL)],
+                         'the manifest is re-read; the unchanged image is not downloaded')
+
+    def test_an_unpadded_source_date_does_not_mask_the_day(self):
+        """A date that is not ISO-padded must not sort ahead of today.
+
+        A manifest's `date` is only recommended, and the value is not format-checked
+        when it is parsed: comparing '2030-1-1' with '2030-01-02' as text says
+        "newer", which masked the day exactly like the reported bug.
+        """
+        config, paths, fetcher = self.build()
+        platform = support.FakePlatform()
+        midnight = datetime.datetime(2030, 1, 2, 0, 41, tzinfo=datetime.timezone.utc)
+        yesterday = support.make_image((640, 360), color='red')
+        fetcher.responses[MANIFEST_URL] = Response(
+            url=MANIFEST_URL, status=200,
+            data=support.manifest_for(yesterday, image_url=IMAGE_URL, width=640, height=360,
+                                      date='2030-1-1'),
+            headers={'Content-Type': 'application/json'})
+        fetcher.responses[IMAGE_URL] = Response(url=IMAGE_URL, status=200, data=yesterday)
+        first, _ = self.run_once(config, paths, fetcher, platform=platform, now=midnight)
+        self.assertTrue(first.ok)
+
+        today = support.make_image((640, 360), color='blue')
+        fetcher.responses[MANIFEST_URL] = Response(
+            url=MANIFEST_URL, status=200,
+            data=support.manifest_for(today, image_url=IMAGE_URL, width=640, height=360,
+                                      date='2030-01-02'),
+            headers={'Content-Type': 'application/json'})
+        fetcher.responses[IMAGE_URL] = Response(url=IMAGE_URL, status=200, data=today)
+        fetcher.requests.clear()
+        result, _ = self.run_once(
+            config, paths, fetcher, platform=platform,
+            now=datetime.datetime(2030, 1, 2, 7, 35, tzinfo=datetime.timezone.utc))
+        self.assertEqual(result.outcome, 'updated',
+                         "an unpadded date must not sort as newer than today")
+        self.assertEqual(Cache(paths.cache_dir).current().read_bytes(), today)
+
+    def test_a_non_ascii_date_does_not_mask_the_day(self):
+        """Only ASCII digits make a date: `\\d` also matches other scripts' digits.
+
+        '٢٠٣٠-٠١-٠١' (Arabic-Indic) passes a `\\d`-based guard and then sorts after
+        '2030-01-02' as text, which masked the day exactly like the unpadded case the
+        guard exists to reject.
+        """
+        config, paths, fetcher = self.build()
+        platform = support.FakePlatform()
+        midnight = datetime.datetime(2030, 1, 2, 0, 41, tzinfo=datetime.timezone.utc)
+        yesterday = support.make_image((640, 360), color='red')
+        fetcher.responses[MANIFEST_URL] = Response(
+            url=MANIFEST_URL, status=200,
+            data=support.manifest_for(yesterday, image_url=IMAGE_URL, width=640, height=360,
+                                      date='٢٠٣٠-٠١-٠١'),
+            headers={'Content-Type': 'application/json'})
+        fetcher.responses[IMAGE_URL] = Response(url=IMAGE_URL, status=200, data=yesterday)
+        first, _ = self.run_once(config, paths, fetcher, platform=platform, now=midnight)
+        self.assertTrue(first.ok)
+
+        today = support.make_image((640, 360), color='blue')
+        fetcher.responses[MANIFEST_URL] = Response(
+            url=MANIFEST_URL, status=200,
+            data=support.manifest_for(today, image_url=IMAGE_URL, width=640, height=360,
+                                      date='2030-01-02'),
+            headers={'Content-Type': 'application/json'})
+        fetcher.responses[IMAGE_URL] = Response(url=IMAGE_URL, status=200, data=today)
+        fetcher.requests.clear()
+        result, _ = self.run_once(
+            config, paths, fetcher, platform=platform,
+            now=datetime.datetime(2030, 1, 2, 7, 35, tzinfo=datetime.timezone.utc))
+        self.assertEqual(result.outcome, 'updated',
+                         'digits from another script are not an ISO date')
+        self.assertEqual(Cache(paths.cache_dir).current().read_bytes(), today)
+
+    def test_a_manifest_without_a_date_does_not_mask_the_day(self):
+        """The spec's minimal manifest has no `date`; that must not mask the day.
+
+        An undated *manifest* is cheap to re-read and the sha comparison suppresses
+        the image download, so an undatable state is treated as stale — the previous
+        carve-out left the reported defect reachable for a spec-conforming source.
+        """
+        config, paths, fetcher = self.build()
+        platform = support.FakePlatform()
+        image = support.make_image((640, 360), color='red')
+        undated = json.loads(support.manifest_for(
+            image, image_url=IMAGE_URL, width=640, height=360).decode('utf-8'))
+        del undated['date']
+        fetcher.responses[MANIFEST_URL] = Response(
+            url=MANIFEST_URL, status=200, data=json.dumps(undated).encode('utf-8'),
+            headers={'Content-Type': 'application/json'})
+        fetcher.responses[IMAGE_URL] = Response(url=IMAGE_URL, status=200, data=image)
+        first, _ = self.run_once(
+            config, paths, fetcher, platform=platform,
+            now=datetime.datetime(2030, 1, 2, 0, 41, tzinfo=datetime.timezone.utc))
+        self.assertTrue(first.ok)
+        fetcher.requests.clear()
+        result, _ = self.run_once(
+            config, paths, fetcher, platform=platform,
+            now=datetime.datetime(2030, 1, 2, 1, 41, tzinfo=datetime.timezone.utc))
+        self.assertEqual(result.outcome, 'unchanged')
+        self.assertEqual(fetcher.requests, [('GET', MANIFEST_URL)],
+                         'an undated manifest is re-read on every check')
 
     def test_a_busy_lock_does_not_spend_a_repair_attempt(self):
         """A tick skipped because another updater holds the lock is not an attempt.

@@ -32,6 +32,15 @@ cached, what succeeded last, and what the desktop currently reports.
 4. **Check which file the desktop thinks it has.** `paperdrop status` prints it.
    If the desktop shows a different path, the apply step is not reaching the
    desktop — see the platform sections below.
+5. **Was there a check just after midnight?** A run between 00:00 and the daily
+   publication succeeds against *yesterday's* manifest and, before 0.1.14, that
+   alone made every later check that day answer "already up to date" without
+   reading the source — so the wallpaper never changed that day.
+   `paperdrop --json status` prints the last success's `source_date`: if it is
+   missing, or older than `local_date` while the source has something newer,
+   `paperdrop update` applies it now. 0.1.14 stops both cases from masking the day:
+   it only trusts a padded ISO date, and it re-reads a manifest that carries no date
+   at all.
 
 ## "the desktop state could not be confirmed"
 

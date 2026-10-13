@@ -98,8 +98,9 @@ journalctl --user -u paperdrop.service -n 50
 If you see "No graphical session found", your desktop session is not exporting
 the display to the user manager. Two workable answers:
 
-1. Add a session autostart entry that runs `paperdrop run --check` once at login
-   (the timer keeps doing the daily work when the session is up), or
+1. Add a session autostart entry that runs `paperdrop run` once at login (it also
+   fetches the day's image, which `run --check` deliberately will not do; the timer
+   keeps doing the daily work when the session is up), or
 2. run the sweep from cron with the environment captured explicitly:
    ```
    5 5 * * * DISPLAY=:0 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus /path/to/.venv/bin/paperdrop run

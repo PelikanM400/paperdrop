@@ -6,6 +6,41 @@ All notable changes to PaperDrop are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.14] — 2026-10-13
+
+Still a pre-release: Python regressions are exercised off-device; the Swift helper
+requires local compilation and real-Mac visual acceptance.
+
+### Fixed
+- **A machine that ran once between midnight and the daily publication stopped
+  fetching that day's image.** The same-day shortcut asked "did a run succeed
+  today?" — and a run at 00:41 that resolves *yesterday's* manifest records today
+  as its local date, so every later check answered "already up to date" without
+  reading the source: the 07:35 run and the 09:04 catch-up both did nothing and the
+  wallpaper stayed on yesterday's image until someone ran `paperdrop update`.
+  The shortcut now also requires the last success to have come from a source dated
+  today or later. Reported from a real machine on 2026-10-13 (07:35 missed, 09:04
+  check reported "already up to date", zero network requests). Upgrading is enough
+  to repair such a machine: the next run finds the source stale, reads it, and
+  applies today's image.
+- The freshness comparison itself was too trusting, which the independent review of
+  this release caught before it shipped. A manifest's `date` is only *recommended*
+  in the spec and its value is never format-checked, so an unpadded date
+  (`2026-1-1`) or a non-date string (`unknown`) sorted *after* today and masked the
+  day exactly like the original bug; and an **undated** manifest — the spec's own
+  minimal example — kept the old behaviour. Freshness now requires a padded ISO
+  date whose digits are ASCII (Python's `\d` also matches other scripts' digits,
+  and those sort after any ASCII date — a second review round caught that one),
+  while a missing or unusable date counts as stale for a manifest source:
+  re-reading a manifest is cheap (≤256 KiB) and its sha comparison suppresses the
+  image download. The one exception is an `image` source with **no** ETag or
+  Last-Modified recorded, where a check would re-download the whole picture — that
+  case still counts as fresh, and it is called out here rather than claimed fixed.
+- A non-string `source_date` in a hand-edited state file no longer raises.
+- `paperdrop run --check` on a stale or undatable state now reports instead of
+  repairing the desktop from the cache: nothing has confirmed that the cached image
+  is today's. A plain `paperdrop run` (what the schedule uses) still repairs it.
+
 ## [0.1.13] — 2026-10-12
 
 Still a pre-release: Python regressions are exercised off-device; the Swift helper

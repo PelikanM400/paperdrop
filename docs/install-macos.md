@@ -176,7 +176,7 @@ cd /path/to/reviewed/paperdrop
 pipx install --force .                # if the existing install uses pipx
 bash macos/build.sh --install
 paperdrop doctor                     # check the helper actually selected by the config/PATH
-paperdrop run --check                 # offline; repairs a matching same-day legacy success
+paperdrop run --check                 # offline check: reports when the day's source is not proven
 paperdrop apply-cached                # offline apply even if the saved success is older
 paperdrop install                    # regenerate/reload agents with the upgraded Python install
 paperdrop status --json
@@ -199,9 +199,11 @@ Private staging can temporarily consume extra space. The next Python cache
 operation prunes unindexed images left by an interrupted publication.
 
 A same-day success with a legacy `cache_path` cannot prove visible pixels are
-current. When the current bytes match its saved SHA-256, `run` and `run --check`
-apply the new immutable URL without fetching, confirm the reported path and save
-that new path only on success. Subsequent same-day checks remain no-ops and still
+current. When the current bytes match its saved SHA-256, `run` applies the new
+immutable URL without fetching, confirms the reported path and saves that new path
+only on success; `run --check` does the same only when the saved success came from
+today's source (a stale or undated one is reported instead, and `apply-cached`
+applies the cache directly). Subsequent same-day checks remain no-ops and still
 record `last check`. On rejection/failed confirmation the old current image file
 remains retained; confirmed success is not falsely recorded. The atomic index's
 `active` filename advances only after desktop confirmation, separate from a new

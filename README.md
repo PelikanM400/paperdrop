@@ -51,7 +51,7 @@ Honesty matters more than a longer feature list here.
 |---|---|---|---|
 | **macOS** | Implemented; **mostly verified on real hardware** | On one machine (MacBook Air M5, macOS 27.0.1, two displays): the Swift helper compiles and runs; both screens are filled with the same image without stretching; **every desktop space updates**; sleep and wake leave the wallpaper intact; the LaunchAgent loads, runs `paperdrop` when launched and when triggered by hand, exits 0, and records each run. **Withdrawn in 0.1.12:** this table used to claim that an external display reconnected by hand comes back with the cached image. A second Mac (macOS 27.0.1, LG UltraFine) showed that the screen-parameter notification never reaches the headless helper at all — only wake events did — and its external display kept the wallpaper it remembered until the screen was polled. | The calendar trigger firing at its configured time on its own; the periodic catch-up after a wake; the login catch-up; the screen-parameter notification itself (since 0.1.12 a poll of every screen is what repairs a reconnected display); the Gatekeeper prompt (the locally built helper was not quarantined on that machine) |
 | **Linux (Xfce)** | Implemented; **partly verified on real hardware** | On one machine (Linux Mint, Xfce channel `xfce4-desktop`, Python 3.12.3, `xfconf-query` on PATH, one graphical session): `paperdrop doctor` reports every check ok; a run downloaded, SHA-256-verified and cached the image and set **all 15 backdrop `last-image` properties** to it on a multi-monitor, four-workspace setup (five monitor identifiers, workspaces 0-3 on each); the systemd user timer was written and is enabled; the cached hash was the same image the macOS machine cached that day. | A run triggered by the timer at its configured time (only a hand-run `paperdrop run` was observed); behaviour after a reboot; a monitor attached while the session is running (Linux has no resident watcher); fill-without-stretching still depends on the background style the user sets by hand |
-| Both | The shared core: config, manifest parsing, transfer limits, verification, cache, state, lock, logging. Plus the platform artifacts we cannot run here: launchd plists, systemd units, Xfce property handling — and the generated command line is executed by the suite, so a scheduler entry that cannot run fails the tests | Covered by the automated test suite (184 tests) — no network, no real desktop | — |
+| Both | The shared core: config, manifest parsing, transfer limits, verification, cache, state, lock, logging. Plus the platform artifacts we cannot run here: launchd plists, systemd units, Xfce property handling — and the generated command line is executed by the suite, so a scheduler entry that cannot run fails the tests | Covered by the automated test suite (188 tests) — no network, no real desktop | — |
 
 macOS Spaces is the one to be careful about: the AppKit call is **per screen**,
 and Apple's documentation promises nothing about all Spaces. One real machine
@@ -131,8 +131,10 @@ paperdrop install
 not fire while the Mac is asleep, so the daily agent also carries a periodic
 catch-up (`schedule.catch_up_interval_minutes`, 60 by default) that picks the run
 up soon after the machine wakes. Those extra runs are nearly free: when today
-already succeeded, PaperDrop only checks the desktop state — no download, no
-re-apply. Set the interval to `0` to turn them off. On Linux, `Persistent=true`
+already succeeded *and the source is not older than today*, PaperDrop only checks
+the desktop state — no download, no re-apply. If the cached success came from an
+older source (a run just after midnight, before the day's publication), the check
+reads the manifest once first. Set the interval to `0` to turn them off. On Linux, `Persistent=true`
 is what handles a run missed while the machine was off.
 
 To confirm the schedule is actually firing, `paperdrop status` prints
@@ -206,7 +208,7 @@ image to confirm the SHA-256 matches. It writes nothing to your cache.
 | Command | What it does |
 |---|---|
 | `paperdrop run` | Today's update. Does nothing if today already succeeded and the desktop still shows the cached image. |
-| `paperdrop run --check` | Cheap pass: repair the desktop from the cache. Never downloads. |
+| `paperdrop run --check` | Cheap pass: repair the desktop from the cache **when today's source is already known**; never downloads. A source that is stale or undated is reported instead — use `paperdrop run` for that. |
 | `paperdrop update` | Same as `run --force`: fetch and apply now, ignoring the same-day check. |
 | `paperdrop status` | Config, cache, last success, what the desktop currently shows. |
 | `paperdrop install` | Create the user-level schedule. |
@@ -489,7 +491,7 @@ python3 tools/validate-manifest.py https://example.com/desk.json --check-image
 | 命令 | 作用 |
 |---|---|
 | `paperdrop run` | 执行今天的更新。若今天已成功且桌面仍显示缓存图片，则什么都不做。 |
-| `paperdrop run --check` | 轻量检查：只用缓存修复桌面状态，**从不下载**。 |
+| `paperdrop run --check` | 轻量检查：**当"今天的源"已被确认时**，只用缓存修复桌面状态；**从不下载**。源过期或无日期时只报告、不修复——那种情况用 `paperdrop run`。 |
 | `paperdrop update` | 等同于 `run --force`：立刻获取并应用，忽略"当天已成功"判断。 |
 | `paperdrop status` | 显示配置、缓存、上次成功、桌面当前状态。 |
 | `paperdrop install` | 创建用户级定时。 |
