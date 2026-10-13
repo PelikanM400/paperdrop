@@ -40,6 +40,10 @@ requires local compilation and real-Mac visual acceptance.
 - `paperdrop run --check` on a stale or undatable state now reports instead of
   repairing the desktop from the cache: nothing has confirmed that the cached image
   is today's. A plain `paperdrop run` (what the schedule uses) still repairs it.
+- A source dated *ahead* of today still counts as fresh, on purpose: publisher and
+  client timezones can differ, and a feed may date its next publication. A feed that
+  moves its date backwards is therefore masked for that day. The `--check` wording
+  in the command help and the README now matches what the flag actually does.
 
 ## [0.1.13] — 2026-10-12
 

@@ -44,7 +44,8 @@ def build_parser():
     run = sub.add_parser('run', help="fetch and apply today's wallpaper")
     run.add_argument('--force', action='store_true', help='ignore the same-day check')
     run.add_argument('--check', action='store_true',
-                     help='cheap run: repair the desktop state from the cache without downloading')
+                     help="cheap run: repair the desktop from the cache when today's source is "
+                          'known; never downloads, and reports a stale or undated source instead')
 
     update = sub.add_parser('update', help='replace the wallpaper now (same as "run --force")')
     update.set_defaults(force=True)

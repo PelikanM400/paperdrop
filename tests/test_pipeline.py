@@ -130,7 +130,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(pathlib.Path(first.cache_path).read_bytes(), self.image,
                          'demoting a role must not rename or mutate its image URL')
 
-    def test_upgrade_repairs_a_same_day_fixed_path_false_success_offline(self):
+    def test_upgrade_fixes_a_same_day_fixed_path_false_success(self):
         for check_only in (False, True):
             with self.subTest(check_only=check_only):
                 config, paths, fetcher = self.build()
