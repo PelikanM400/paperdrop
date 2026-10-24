@@ -56,11 +56,13 @@ _WRITE_LOCK = threading.Lock()
 
 
 class _HttpOnlyRedirects(urllib.request.HTTPRedirectHandler):
-    """Follow http(s) redirects only, like the CLI's Fetcher, and keep a small cap."""
+    """Follow the same schemes the CLI's Fetcher allows, and keep a small cap."""
     max_redirections = 5
+    allow_http = True
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if urllib.parse.urlsplit(newurl).scheme.lower() not in ('http', 'https'):
+        allowed = ('http', 'https') if self.allow_http else ('https',)
+        if urllib.parse.urlsplit(newurl).scheme.lower() not in allowed:
             raise urllib.error.HTTPError(newurl, code, 'redirect to a non-http scheme refused',
                                          headers, fp)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
@@ -312,13 +314,15 @@ def classify_source(source_url, allow_http=False):
     """Fetch a candidate URL and say what it is. Values are plain text, never HTML."""
     scheme = source_url.split(':', 1)[0].lower()
     if scheme not in ('http', 'https'):
-        return {'kind': None, 'rows': [], 'error': '必须是 http(s) 地址'}
+        return {'kind': None, 'rows': [], 'url': source_url, 'error': '必须是 http(s) 地址'}
     if scheme == 'http' and not allow_http:
-        return {'kind': None, 'rows': [],
+        return {'kind': None, 'rows': [], 'url': source_url,
                 'error': '明文 http 被配置拒绝（http.allow_http 为 false），请用 https'}
     deadline = time.monotonic() + FETCH_DEADLINE_SECONDS
     try:
-        opener = urllib.request.build_opener(_HttpOnlyRedirects)
+        redirects = _HttpOnlyRedirects()
+        redirects.allow_http = allow_http
+        opener = urllib.request.build_opener(redirects)
         request = urllib.request.Request(source_url, headers={
             'User-Agent': 'PaperDrop/' + __version__, 'Accept': '*/*'})
         with opener.open(request, timeout=min(15, FETCH_DEADLINE_SECONDS)) as response:
@@ -326,7 +330,9 @@ def classify_source(source_url, allow_http=False):
             while True:
                 if time.monotonic() > deadline:
                     raise TimeoutError('source took longer than %ss' % FETCH_DEADLINE_SECONDS)
-                block = response.read(256 * 1024)
+                # read1 returns as soon as *some* data is available, so the deadline above
+                # is actually reached on a slow drip; read(n) would wait for the full block.
+                block = response.read1(256 * 1024)
                 if not block:
                     break
                 total += len(block)

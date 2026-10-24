@@ -370,6 +370,44 @@ class SettingsPageTests(unittest.TestCase):
         self.assertIn("'&#39;'", ui.PAGE)
         self.assertIn("['版本', s.version]", ui.PAGE)
 
+    def test_fetch_budget_stops_a_slow_drip(self):
+        import socket
+        import time as clock
+
+        listener = socket.socket()
+        listener.bind(('127.0.0.1', 0))
+        listener.listen(1)
+        self.addCleanup(listener.close)
+
+        def drip():
+            connection, _ = listener.accept()
+            try:
+                connection.sendall(b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n'
+                                   b'Content-Length: 1000\r\n\r\n')
+                for _ in range(120):
+                    connection.sendall(b'{')
+                    clock.sleep(0.5)
+            except OSError:
+                pass
+            finally:
+                connection.close()
+
+        threading.Thread(target=drip, daemon=True).start()
+        url = 'http://127.0.0.1:%d/desk.json' % listener.getsockname()[1]
+        started = clock.monotonic()
+        with mock.patch.object(ui, 'FETCH_DEADLINE_SECONDS', 2):
+            verdict = ui.classify_source(url, allow_http=True)
+        elapsed = clock.monotonic() - started
+        self.assertIsNotNone(verdict['error'])
+        self.assertLess(elapsed, 6, 'a trickling source must hit the total budget')
+
+    def test_redirect_to_http_is_refused_when_http_is_disabled(self):
+        handler = ui._HttpOnlyRedirects()
+        handler.allow_http = False
+        with self.assertRaises(urllib.error.HTTPError):
+            handler.redirect_request(urllib.request.Request('https://a.test/x'), None,
+                                    302, 'Found', {}, 'http://b.test/x')
+
 
     # request hygiene ---------------------------------------------------------
     def test_post_requires_json(self):
