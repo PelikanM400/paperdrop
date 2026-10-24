@@ -1,0 +1,167 @@
+commit cb0202852ea64f29a5a4d573810079a8e3763cef
+Author: Zhang Yuelun <pelikanm400@users.noreply.github.com>
+Date:   Sat Oct 24 14:45:43 2026 +0800
+
+    Let the settings page be served from a file
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 2f4cdd9..1808454 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -4,6 +4,15 @@ All notable changes to PaperDrop are recorded here. The format follows
+ [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions use
+ [Semantic Versioning](https://semver.org/).
+ 
++## [0.2.2] — 2026-10-24
++
++### Added
++- `PAPERDROP_UI_PAGE=/path/page.html` makes `paperdrop ui` serve that file instead of the
++  built-in page, so the layout can be edited without rebuilding the package — change the
++  file, refresh the browser. Missing, unreadable, non-UTF-8 or larger than 2 MB falls back
++  to the built-in page; the token, Host and CSRF guards are unchanged. The startup banner
++  prints `page: … (override)` when it is active.
++
+ ## [0.2.1] — 2026-10-24
+ 
+ ### Fixed
+diff --git a/README.md b/README.md
+index 2d6a635..da1d98f 100644
+--- a/README.md
++++ b/README.md
+@@ -228,6 +228,10 @@ a random token from the URL it prints, refuses cross-site writes, and edits the
+ re-read afterwards). A change to the daily time re-runs `install` and is rolled back if
+ that fails. The command line is unchanged and `ui` never starts by itself.
+ 
++Set `PAPERDROP_UI_PAGE=/path/to/page.html` to serve your own copy of the page instead of
++the built-in one — useful while editing it: change the file, refresh the browser, no
++rebuild. A missing or oversized file falls back to the built-in page.
++
+ ## Where things live
+ 
+ | What | Path |
+@@ -519,6 +523,9 @@ python3 tools/validate-manifest.py https://example.com/desk.json --check-image
+ 拒绝跨站写入，编辑的就是命令行用的那份 `config.json`（先校验、备份、原子写入、再回读）。
+ 改启动时间会自动重跑 `install`，失败则回滚。命令行行为不变，`ui` 也绝不会自己启动。
+ 
++设了 `PAPERDROP_UI_PAGE=/某处/page.html` 就改为读取你自己的页面文件——改界面时用：
++改文件、刷新浏览器即可，不用重新打包。文件不存在或超过 2 MB 时回退到内置页面。
++
+ ## 文件位置
+ 
+ | 内容 | 路径 |
+diff --git a/pyproject.toml b/pyproject.toml
+index 30008c1..5572905 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
+ 
+ [project]
+ name = "paperdrop"
+-version = "0.2.1"
++version = "0.2.2"
+ description = "A small daily wallpaper client for macOS and Linux (Xfce): fetch one image from a public source, verify it, cache it, apply it."
+ readme = "README.md"
+ requires-python = ">=3.9"
+diff --git a/src/paperdrop/__init__.py b/src/paperdrop/__init__.py
+index b1a666c..fd4c5ac 100644
+--- a/src/paperdrop/__init__.py
++++ b/src/paperdrop/__init__.py
+@@ -5,6 +5,6 @@ configures, verifies it, caches it, and applies it to the desktop. It ships no
+ images and never publishes anything.
+ """
+ 
+-__version__ = '0.2.1'
++__version__ = '0.2.2'
+ 
+ USER_AGENT = 'PaperDrop/' + __version__ + ' (+https://github.com/PelikanM400/paperdrop)'
+diff --git a/src/paperdrop/ui.py b/src/paperdrop/ui.py
+index 85c8bc8..4677265 100644
+--- a/src/paperdrop/ui.py
++++ b/src/paperdrop/ui.py
+@@ -49,6 +49,8 @@ MAX_FETCH = 64 * 1024 * 1024
+ MAX_LOG_LINES = 400
+ FETCH_DEADLINE_SECONDS = 20
+ CONFIG_MODE = 0o600
++PAGE_OVERRIDE_ENV = 'PAPERDROP_UI_PAGE'
++PAGE_OVERRIDE_MAX = 2 * 1024 * 1024
+ 
+ # One writer at a time: two concurrent applies must not interleave read/write/rollback.
+ _WRITE_LOCK = threading.Lock()
+@@ -293,6 +295,25 @@ def _read_state(paths):
+         return {}
+ 
+ 
++def page_html():
++    """The page served at `/`. PAPERDROP_UI_PAGE overrides it with a file on disk.
++
++    That is a development aid: edit the HTML, refresh the browser, no rebuild. The file
++    is read on every request and falls back to the built-in page if it is missing, too
++    large or not UTF-8.
++    """
++    presets = json.dumps(PRESETS, ensure_ascii=False)
++    override = os.environ.get(PAGE_OVERRIDE_ENV)
++    if override:
++        try:
++            path = pathlib.Path(override).expanduser()
++            if path.is_file() and path.stat().st_size <= PAGE_OVERRIDE_MAX:
++                return path.read_text(encoding='utf-8').replace('__PRESETS__', presets).encode()
++        except (OSError, UnicodeError):
++            pass
++    return PAGE.replace('__PRESETS__', presets).encode()
++
++
+ def _schedule_state(config):
+     """Best effort, and honest about it: never claim a state we did not observe."""
+     try:
+@@ -669,8 +690,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
+             return
+         try:
+             if parsed.path == '/':
+-                page = PAGE.replace('__PRESETS__', json.dumps(PRESETS, ensure_ascii=False)).encode()
+-                return self._send(200, page, 'text/html; charset=utf-8')
++                return self._send(200, page_html(), 'text/html; charset=utf-8')
+             if parsed.path == '/api/status':
+                 return self._send(200, status_payload(self.config_path))
+             if parsed.path == '/api/log':
+@@ -754,6 +774,8 @@ def serve(config_path=None, port=8765, open_browser=True):
+     print('PaperDrop settings (local only)')
+     print('config: %s' % config_path)
+     print('open:   %s' % url)
++    if os.environ.get(PAGE_OVERRIDE_ENV):
++        print('page:   %s (override)' % os.environ[PAGE_OVERRIDE_ENV])
+     print('Ctrl-C to stop')
+     if open_browser:
+         try:
+diff --git a/tests/test_ui.py b/tests/test_ui.py
+index 9fe12c9..82f62b5 100644
+--- a/tests/test_ui.py
++++ b/tests/test_ui.py
+@@ -480,6 +480,28 @@ class SettingsPageTests(unittest.TestCase):
+         finally:
+             stopping.set()
+ 
++    def test_page_override_file_is_served(self):
++        page = self.home_path / 'page.html'
++        page.write_text('<!doctype html><title>自定义页面</title><p>__PRESETS__</p>',
++                        encoding='utf-8')
++        with mock.patch.dict(os.environ, {ui.PAGE_OVERRIDE_ENV: str(page)}):
++            status, body = request(self.url('/'))
++        self.assertEqual(status, 200)
++        self.assertIn('自定义页面', body)
++        self.assertIn('Gitee 横版', body, 'the preset placeholder is still filled in')
++        self.assertNotIn('__PRESETS__', body)
++
++    def test_page_override_falls_back_when_unusable(self):
++        with mock.patch.dict(os.environ, {ui.PAGE_OVERRIDE_ENV: str(self.home_path / 'missing.html')}):
++            status, body = request(self.url('/'))
++        self.assertEqual(status, 200)
++        self.assertIn('PaperDrop 设置', body, 'a missing override must not break the page')
++
++        big = self.home_path / 'big.html'
++        big.write_text('x' * (ui.PAGE_OVERRIDE_MAX + 10), encoding='utf-8')
++        with mock.patch.dict(os.environ, {ui.PAGE_OVERRIDE_ENV: str(big)}):
++            self.assertIn('PaperDrop 设置', request(self.url('/'))[1])
++
+ 
+     # request hygiene ---------------------------------------------------------
+     def test_post_requires_json(self):
