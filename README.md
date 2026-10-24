@@ -273,6 +273,9 @@ URLs and outcomes only — never credentials, because there are none.
 - Downloads are size-capped; images are pixel-capped; the manifest is read with
   a small byte budget.
 - Logs contain URLs and outcomes, never credentials (there are none to leak).
+- `paperdrop ui` is off unless you start it. It opens a listener on `127.0.0.1` only,
+  reachable solely with a random per-run token from the URL it prints, refuses cross-site
+  writes, and serves one page with no external scripts or images.
 
 ## Documentation
 
@@ -548,6 +551,8 @@ PaperDrop 会**保留最新的一半、丢掉其余**，并写一行说明。把
 - 只访问你配置的那个源。跟随跳转时仅允许 HTTPS、限制跳转次数，且**绝不携带凭据**。
 - 下载有体积上限；图片有像素上限；清单读取也有小的字节预算。
 - 日志只包含地址与结果，不含任何凭据（本来就没有凭据可泄漏）。
+- `paperdrop ui` 不启动就不存在。它只在 `127.0.0.1` 上开一个监听，凭每次启动随机生成的
+  URL 令牌访问，拒绝一切跨站写入，页面不加载任何外部脚本或图片。
 
 ## 文档
 
