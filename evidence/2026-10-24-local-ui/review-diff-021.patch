@@ -1,225 +1,130 @@
-commit 59882cbd73eafa7923760b63d789f104b03770d7
+commit 819d5721363e015d481f6c98a967047c37982817
 Author: Zhang Yuelun <pelikanm400@users.noreply.github.com>
-Date:   Sat Oct 24 13:54:07 2026 +0800
+Date:   Sat Oct 24 14:04:09 2026 +0800
 
-    Clear the review findings on the settings page
+    Make the source-check budget real and keep redirects to allowed schemes
 
-diff --git a/pyproject.toml b/pyproject.toml
-index 3490ec9..30008c1 100644
---- a/pyproject.toml
-+++ b/pyproject.toml
-@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 25f9031..6567c37 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -4,6 +4,21 @@ All notable changes to PaperDrop are recorded here. The format follows
+ [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions use
+ [Semantic Versioning](https://semver.org/).
  
- [project]
- name = "paperdrop"
--version = "0.2.0"
-+version = "0.2.1"
- description = "A small daily wallpaper client for macOS and Linux (Xfce): fetch one image from a public source, verify it, cache it, apply it."
- readme = "README.md"
- requires-python = ">=3.9"
++## [0.2.1] — 2026-10-24
++
++### Fixed
++- `paperdrop ui`: a non-ASCII token (a mangled `?t=`) raised `TypeError` inside
++  `hmac.compare_digest`, which dropped the connection and printed a traceback. Tokens are
++  now compared as UTF-8 bytes and a bad one is answered with 403.
++- `paperdrop ui`: the source check has a real 20 s total budget — it reads incrementally
++  (`read1`), so a slow-trickling source can no longer stall a request for minutes — and
++  the fetch happens outside the write lock, so it cannot block another save.
++- `paperdrop ui`: redirects are only followed when their scheme is allowed by the
++  configuration (`http` needs `http.allow_http`), matching the CLI's fetcher.
++- `paperdrop ui`: `Host: [::1]:port` is parsed correctly, `/api/log?lines=abc` answers 400
++  instead of 500, the page's escaper also escapes `'`, and the status rows are no longer
++  double-escaped.
++
+ ## [0.2.0] — 2026-10-24
+ 
+ ### Added
 diff --git a/src/paperdrop/ui.py b/src/paperdrop/ui.py
-index 4824877..47b60fd 100644
+index 47b60fd..ea9c1da 100644
 --- a/src/paperdrop/ui.py
 +++ b/src/paperdrop/ui.py
-@@ -27,6 +27,8 @@ import subprocess
- import sys
- import tempfile
- import threading
-+import time
-+import urllib.error
- import urllib.parse
- import urllib.request
- import webbrowser
-@@ -46,11 +48,23 @@ PRESETS = [
- MAX_BODY = 64 * 1024
- MAX_FETCH = 64 * 1024 * 1024
- MAX_LOG_LINES = 400
-+FETCH_DEADLINE_SECONDS = 20
- CONFIG_MODE = 0o600
+@@ -56,11 +56,13 @@ _WRITE_LOCK = threading.Lock()
  
- # One writer at a time: two concurrent applies must not interleave read/write/rollback.
- _WRITE_LOCK = threading.Lock()
  
-+
-+class _HttpOnlyRedirects(urllib.request.HTTPRedirectHandler):
-+    """Follow http(s) redirects only, like the CLI's Fetcher, and keep a small cap."""
-+    max_redirections = 5
-+
-+    def redirect_request(self, req, fp, code, msg, headers, newurl):
-+        if urllib.parse.urlsplit(newurl).scheme.lower() not in ('http', 'https'):
-+            raise urllib.error.HTTPError(newurl, code, 'redirect to a non-http scheme refused',
-+                                         headers, fp)
-+        return super().redirect_request(req, fp, code, msg, headers, newurl)
-+
- PAGE = """<!doctype html>
- <html lang="zh-CN"><head><meta charset="utf-8">
- <meta name="viewport" content="width=device-width, initial-scale=1">
-@@ -125,7 +139,7 @@ th{color:#8b93a7;font-weight:600}
- const TOKEN = new URLSearchParams(location.search).get('t') || '';
- let CURRENT = null, PREVIEWED = null, BUSY = false;
- const $ = (id) => document.getElementById(id);
--const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
- function setBusy(v){ BUSY = v; document.querySelectorAll('button').forEach(b => { if (b.id !== 'refresh') b.disabled = v; }); if (!v) $('apply').disabled = !PREVIEWED; }
- function invalidate(){ PREVIEWED = null; $('apply').disabled = true; $('applyNote').textContent = '输入已修改，请重新预览。'; }
- async function api(path, body){
-@@ -143,14 +157,14 @@ function renderStatus(s){
-   CURRENT = s;
-   const st = s.state || {}, ok = st.last_success || {}, at = st.last_attempt || {};
-   $('status').innerHTML = kv([
--    ['版本', esc(s.version)],
-+    ['版本', s.version],
-     ['配置', s.config_path],
-     ['图源', s.source.url + (s.source.mode === 'image' ? '（image 模式）' : '')],
-     ['每天运行', s.schedule.daily_time + '　补检查 ' + s.schedule.catch_up_interval_minutes + ' 分钟　屏幕轮询 ' + s.schedule.screen_poll_seconds + ' 秒'],
-     ['上次成功', (ok.local_date || '—') + (ok.finished_at ? '　' + ok.finished_at : '')],
-     ['上次检查', (at.local_date || '—') + (at.detail ? '　' + at.detail : '')],
-     ['定时任务', s.schedule_state],
--    ['平台', esc(s.platform)],
-+    ['平台', s.platform],
-   ]);
-   $('time').value = s.schedule.daily_time;
-   $('url').value = s.source.url;
-@@ -302,15 +316,29 @@ def classify_source(source_url, allow_http=False):
+ class _HttpOnlyRedirects(urllib.request.HTTPRedirectHandler):
+-    """Follow http(s) redirects only, like the CLI's Fetcher, and keep a small cap."""
++    """Follow the same schemes the CLI's Fetcher allows, and keep a small cap."""
+     max_redirections = 5
++    allow_http = True
+ 
+     def redirect_request(self, req, fp, code, msg, headers, newurl):
+-        if urllib.parse.urlsplit(newurl).scheme.lower() not in ('http', 'https'):
++        allowed = ('http', 'https') if self.allow_http else ('https',)
++        if urllib.parse.urlsplit(newurl).scheme.lower() not in allowed:
+             raise urllib.error.HTTPError(newurl, code, 'redirect to a non-http scheme refused',
+                                          headers, fp)
+         return super().redirect_request(req, fp, code, msg, headers, newurl)
+@@ -312,13 +314,15 @@ def classify_source(source_url, allow_http=False):
+     """Fetch a candidate URL and say what it is. Values are plain text, never HTML."""
+     scheme = source_url.split(':', 1)[0].lower()
+     if scheme not in ('http', 'https'):
+-        return {'kind': None, 'rows': [], 'error': '必须是 http(s) 地址'}
++        return {'kind': None, 'rows': [], 'url': source_url, 'error': '必须是 http(s) 地址'}
      if scheme == 'http' and not allow_http:
-         return {'kind': None, 'rows': [],
+-        return {'kind': None, 'rows': [],
++        return {'kind': None, 'rows': [], 'url': source_url,
                  'error': '明文 http 被配置拒绝（http.allow_http 为 false），请用 https'}
-+    deadline = time.monotonic() + FETCH_DEADLINE_SECONDS
+     deadline = time.monotonic() + FETCH_DEADLINE_SECONDS
      try:
-+        opener = urllib.request.build_opener(_HttpOnlyRedirects)
+-        opener = urllib.request.build_opener(_HttpOnlyRedirects)
++        redirects = _HttpOnlyRedirects()
++        redirects.allow_http = allow_http
++        opener = urllib.request.build_opener(redirects)
          request = urllib.request.Request(source_url, headers={
              'User-Agent': 'PaperDrop/' + __version__, 'Accept': '*/*'})
--        with urllib.request.urlopen(request, timeout=15) as response:
--            payload = response.read(MAX_FETCH + 1)
-+        with opener.open(request, timeout=min(15, FETCH_DEADLINE_SECONDS)) as response:
-+            blocks, total = [], 0
-+            while True:
-+                if time.monotonic() > deadline:
-+                    raise TimeoutError('source took longer than %ss' % FETCH_DEADLINE_SECONDS)
-+                block = response.read(256 * 1024)
-+                if not block:
-+                    break
-+                total += len(block)
-+                if total > MAX_FETCH:
-+                    raise ValueError('source is larger than %d bytes' % MAX_FETCH)
-+                blocks.append(block)
-+            payload = b''.join(blocks)
-             content_type = response.headers.get('Content-Type', '')
-             status = response.status
-     except Exception as error:
--        return {'kind': None, 'rows': [], 'error': '%s: %s' % (type(error).__name__, error)}
-+        return {'kind': None, 'rows': [], 'url': source_url,
-+                'error': '%s: %s' % (type(error).__name__, error)}
-     rows = [['HTTP', str(status)], ['Content-Type', content_type or '—'],
-             ['大小', '%d 字节' % len(payload)], ['sha256', hashlib.sha256(payload).hexdigest()[:24] + '…']]
-     if 'json' in content_type.lower() or payload[:1] in (b'{', b'['):
-@@ -321,9 +349,9 @@ def classify_source(source_url, allow_http=False):
-         rows += [['识别为', '清单（manifest）'], ['日期', str(target.date)],
-                  ['尺寸', '%s×%s' % (target.width, target.height)],
-                  ['图片 URL', target.url]]
--        return {'kind': 'manifest', 'rows': rows, 'error': None}
-+        return {'kind': 'manifest', 'rows': rows, 'url': source_url, 'error': None}
-     rows += [['识别为', '图片直链（没有哈希校验）']]
--    return {'kind': 'image', 'rows': rows, 'error': None}
-+    return {'kind': 'image', 'rows': rows, 'url': source_url, 'error': None}
- 
- 
- def _validate(candidate):
-@@ -337,7 +365,7 @@ def _validate(candidate):
-         pathlib.Path(handle.name).unlink(missing_ok=True)
- 
- 
--def _prepare(config_path, daily_time, source_url):
-+def _prepare(config_path, daily_time, source_url, verdict=None):
-     """Work out the exact configuration that would be written, without writing it."""
-     raw = json.loads(pathlib.Path(config_path).read_text(encoding='utf-8'))
-     current_time = raw.get('schedule', {}).get('daily_time')
-@@ -351,7 +379,8 @@ def _prepare(config_path, daily_time, source_url):
- 
-     messages, ok = [], True
-     if source_url != current_url:
--        verdict = classify_source(source_url, allow_http)
-+        if verdict is None or verdict.get('url') != source_url:
-+            verdict = classify_source(source_url, allow_http)
-         if verdict['error']:
-             ok = False
-             messages.append({'level': 'error', 'text': verdict['error']})
-@@ -441,8 +470,14 @@ def _backup(config_path, original_text):
- def apply_changes(config_path, daily_time, source_url):
-     """Serialised: validate, back up, write atomically, re-read, reinstall, else restore."""
-     config_path = pathlib.Path(config_path)
-+    # Classify before taking the write lock: a slow source must not block other writers.
-+    with _WRITE_LOCK:
-+        current = json.loads(config_path.read_text(encoding='utf-8'))
-+    verdict = None
-+    if source_url != current.get('source', {}).get('url'):
-+        verdict = classify_source(source_url, bool(current.get('http', {}).get('allow_http')))
-     with _WRITE_LOCK:
--        prepared = _prepare(config_path, daily_time, source_url)
-+        prepared = _prepare(config_path, daily_time, source_url, verdict=verdict)
-         if not prepared['ok']:
-             raise ValueError('; '.join(m['text'] for m in prepared['messages'] if m['level'] == 'error'))
-         if not prepared['changes']:
-@@ -495,13 +530,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
-     config_path = pathlib.Path('.')
- 
-     def _host_ok(self):
--        host = (self.headers.get('Host') or '').split(':')[0].strip('[]')
-+        raw = (self.headers.get('Host') or '').strip()
-+        if raw.startswith('[') and ']' in raw:
-+            host = raw[1:raw.find(']')]
-+        else:
-+            host = raw.split(':', 1)[0]
-         return host in ('127.0.0.1', 'localhost', '::1')
- 
-     def _token_ok(self, query):
-         if not self.token:
-             return False
--        return hmac.compare_digest(query.get('t', [''])[0], self.token)
-+        presented = query.get('t', [''])[0]
-+        try:
-+            return hmac.compare_digest(presented.encode('utf-8'), self.token.encode('utf-8'))
-+        except (UnicodeError, TypeError):
-+            return False
- 
-     def _same_site(self):
-         site = (self.headers.get('Sec-Fetch-Site') or '').lower()
-@@ -561,7 +604,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
-             if parsed.path == '/api/log':
-                 config, resolved = load_config(self.config_path)
-                 paths = Paths.from_config(config, config_file=resolved)
--                lines = query.get('lines', ['200'])[0]
-+                try:
-+                    lines = int(query.get('lines', ['200'])[0])
-+                except (TypeError, ValueError):
-+                    return self._send(400, {'error': 'lines must be an integer'})
-                 return self._send(200, {'text': log_tail(paths, lines)})
-         except Exception as error:
-             return self._send(500, {'error': str(error)})
+         with opener.open(request, timeout=min(15, FETCH_DEADLINE_SECONDS)) as response:
+@@ -326,7 +330,9 @@ def classify_source(source_url, allow_http=False):
+             while True:
+                 if time.monotonic() > deadline:
+                     raise TimeoutError('source took longer than %ss' % FETCH_DEADLINE_SECONDS)
+-                block = response.read(256 * 1024)
++                # read1 returns as soon as *some* data is available, so the deadline above
++                # is actually reached on a slow drip; read(n) would wait for the full block.
++                block = response.read1(256 * 1024)
+                 if not block:
+                     break
+                 total += len(block)
 diff --git a/tests/test_ui.py b/tests/test_ui.py
-index ead03c2..8790355 100644
+index 8790355..07586c7 100644
 --- a/tests/test_ui.py
 +++ b/tests/test_ui.py
-@@ -353,6 +353,23 @@ class SettingsPageTests(unittest.TestCase):
-                 ui.serve(self.config_path, port=0, open_browser=False)
-         self.assertEqual(captured['address'][0], '127.0.0.1')
+@@ -370,6 +370,44 @@ class SettingsPageTests(unittest.TestCase):
+         self.assertIn("'&#39;'", ui.PAGE)
+         self.assertIn("['版本', s.version]", ui.PAGE)
  
-+    # the 0.2.1 cleanups -------------------------------------------------------
-+    def test_non_ascii_token_is_refused_without_a_traceback(self):
-+        status, _ = request(self.url('/', token='%E4%B8%AD%E6%96%87'))
-+        self.assertEqual(status, 403)
++    def test_fetch_budget_stops_a_slow_drip(self):
++        import socket
++        import time as clock
 +
-+    def test_ipv6_host_header_is_understood(self):
-+        status, _ = request(self.url('/'), host='[::1]:8765')
-+        self.assertEqual(status, 200)
++        listener = socket.socket()
++        listener.bind(('127.0.0.1', 0))
++        listener.listen(1)
++        self.addCleanup(listener.close)
 +
-+    def test_log_with_a_non_numeric_line_count(self):
-+        status, _ = request(self.url('/api/log?lines=abc'))
-+        self.assertEqual(status, 400)
++        def drip():
++            connection, _ = listener.accept()
++            try:
++                connection.sendall(b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n'
++                                   b'Content-Length: 1000\r\n\r\n')
++                for _ in range(120):
++                    connection.sendall(b'{')
++                    clock.sleep(0.5)
++            except OSError:
++                pass
++            finally:
++                connection.close()
 +
-+    def test_page_escapes_apostrophes_and_does_not_double_escape(self):
-+        self.assertIn("'&#39;'", ui.PAGE)
-+        self.assertIn("['版本', s.version]", ui.PAGE)
++        threading.Thread(target=drip, daemon=True).start()
++        url = 'http://127.0.0.1:%d/desk.json' % listener.getsockname()[1]
++        started = clock.monotonic()
++        with mock.patch.object(ui, 'FETCH_DEADLINE_SECONDS', 2):
++            verdict = ui.classify_source(url, allow_http=True)
++        elapsed = clock.monotonic() - started
++        self.assertIsNotNone(verdict['error'])
++        self.assertLess(elapsed, 6, 'a trickling source must hit the total budget')
++
++    def test_redirect_to_http_is_refused_when_http_is_disabled(self):
++        handler = ui._HttpOnlyRedirects()
++        handler.allow_http = False
++        with self.assertRaises(urllib.error.HTTPError):
++            handler.redirect_request(urllib.request.Request('https://a.test/x'), None,
++                                    302, 'Found', {}, 'http://b.test/x')
 +
  
      # request hygiene ---------------------------------------------------------
