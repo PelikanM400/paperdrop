@@ -228,6 +228,10 @@ a random token from the URL it prints, refuses cross-site writes, and edits the 
 re-read afterwards). A change to the daily time re-runs `install` and is rolled back if
 that fails. The command line is unchanged and `ui` never starts by itself.
 
+Set `PAPERDROP_UI_PAGE=/path/to/page.html` to serve your own copy of the page instead of
+the built-in one — useful while editing it: change the file, refresh the browser, no
+rebuild. A missing or oversized file falls back to the built-in page.
+
 ## Where things live
 
 | What | Path |
@@ -518,6 +522,9 @@ python3 tools/validate-manifest.py https://example.com/desk.json --check-image
 `paperdrop ui` 是可选的、纯本地的：只监听 `127.0.0.1`，需要它打印出来的随机 token，
 拒绝跨站写入，编辑的就是命令行用的那份 `config.json`（先校验、备份、原子写入、再回读）。
 改启动时间会自动重跑 `install`，失败则回滚。命令行行为不变，`ui` 也绝不会自己启动。
+
+设了 `PAPERDROP_UI_PAGE=/某处/page.html` 就改为读取你自己的页面文件——改界面时用：
+改文件、刷新浏览器即可，不用重新打包。文件不存在或超过 2 MB 时回退到内置页面。
 
 ## 文件位置
 

@@ -4,6 +4,15 @@ All notable changes to PaperDrop are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions use
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.2] — 2026-10-24
+
+### Added
+- `PAPERDROP_UI_PAGE=/path/page.html` makes `paperdrop ui` serve that file instead of the
+  built-in page, so the layout can be edited without rebuilding the package — change the
+  file, refresh the browser. Missing, unreadable, non-UTF-8 or larger than 2 MB falls back
+  to the built-in page; the token, Host and CSRF guards are unchanged. The startup banner
+  prints `page: … (override)` when it is active.
+
 ## [0.2.1] — 2026-10-24
 
 ### Fixed

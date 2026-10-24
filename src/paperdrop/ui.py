@@ -49,6 +49,8 @@ MAX_FETCH = 64 * 1024 * 1024
 MAX_LOG_LINES = 400
 FETCH_DEADLINE_SECONDS = 20
 CONFIG_MODE = 0o600
+PAGE_OVERRIDE_ENV = 'PAPERDROP_UI_PAGE'
+PAGE_OVERRIDE_MAX = 2 * 1024 * 1024
 
 # One writer at a time: two concurrent applies must not interleave read/write/rollback.
 _WRITE_LOCK = threading.Lock()
@@ -291,6 +293,25 @@ def _read_state(paths):
         return json.loads(paths.state_file.read_text())
     except (OSError, ValueError):
         return {}
+
+
+def page_html():
+    """The page served at `/`. PAPERDROP_UI_PAGE overrides it with a file on disk.
+
+    That is a development aid: edit the HTML, refresh the browser, no rebuild. The file
+    is read on every request and falls back to the built-in page if it is missing, too
+    large or not UTF-8.
+    """
+    presets = json.dumps(PRESETS, ensure_ascii=False)
+    override = os.environ.get(PAGE_OVERRIDE_ENV)
+    if override:
+        try:
+            path = pathlib.Path(override).expanduser()
+            if path.is_file() and path.stat().st_size <= PAGE_OVERRIDE_MAX:
+                return path.read_text(encoding='utf-8').replace('__PRESETS__', presets).encode()
+        except (OSError, UnicodeError):
+            pass
+    return PAGE.replace('__PRESETS__', presets).encode()
 
 
 def _schedule_state(config):
@@ -669,8 +690,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         try:
             if parsed.path == '/':
-                page = PAGE.replace('__PRESETS__', json.dumps(PRESETS, ensure_ascii=False)).encode()
-                return self._send(200, page, 'text/html; charset=utf-8')
+                return self._send(200, page_html(), 'text/html; charset=utf-8')
             if parsed.path == '/api/status':
                 return self._send(200, status_payload(self.config_path))
             if parsed.path == '/api/log':
@@ -754,6 +774,8 @@ def serve(config_path=None, port=8765, open_browser=True):
     print('PaperDrop settings (local only)')
     print('config: %s' % config_path)
     print('open:   %s' % url)
+    if os.environ.get(PAGE_OVERRIDE_ENV):
+        print('page:   %s (override)' % os.environ[PAGE_OVERRIDE_ENV])
     print('Ctrl-C to stop')
     if open_browser:
         try:

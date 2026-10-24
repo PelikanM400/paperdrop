@@ -480,6 +480,28 @@ class SettingsPageTests(unittest.TestCase):
         finally:
             stopping.set()
 
+    def test_page_override_file_is_served(self):
+        page = self.home_path / 'page.html'
+        page.write_text('<!doctype html><title>自定义页面</title><p>__PRESETS__</p>',
+                        encoding='utf-8')
+        with mock.patch.dict(os.environ, {ui.PAGE_OVERRIDE_ENV: str(page)}):
+            status, body = request(self.url('/'))
+        self.assertEqual(status, 200)
+        self.assertIn('自定义页面', body)
+        self.assertIn('Gitee 横版', body, 'the preset placeholder is still filled in')
+        self.assertNotIn('__PRESETS__', body)
+
+    def test_page_override_falls_back_when_unusable(self):
+        with mock.patch.dict(os.environ, {ui.PAGE_OVERRIDE_ENV: str(self.home_path / 'missing.html')}):
+            status, body = request(self.url('/'))
+        self.assertEqual(status, 200)
+        self.assertIn('PaperDrop 设置', body, 'a missing override must not break the page')
+
+        big = self.home_path / 'big.html'
+        big.write_text('x' * (ui.PAGE_OVERRIDE_MAX + 10), encoding='utf-8')
+        with mock.patch.dict(os.environ, {ui.PAGE_OVERRIDE_ENV: str(big)}):
+            self.assertIn('PaperDrop 设置', request(self.url('/'))[1])
+
 
     # request hygiene ---------------------------------------------------------
     def test_post_requires_json(self):
