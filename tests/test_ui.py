@@ -402,11 +402,10 @@ class SettingsPageTests(unittest.TestCase):
         self.assertLess(elapsed, 6, 'a trickling source must hit the total budget')
 
     def test_redirect_to_http_is_refused_when_http_is_disabled(self):
-        handler = ui._HttpOnlyRedirects()
-        handler.allow_http = False
-        with self.assertRaises(urllib.error.HTTPError):
-            handler.redirect_request(urllib.request.Request('https://a.test/x'), None,
-                                    302, 'Found', {}, 'http://b.test/x')
+        self.assertFalse(ui._redirect_allowed('http://b.test/x', False))
+        self.assertTrue(ui._redirect_allowed('http://b.test/x', True))
+        self.assertFalse(ui._redirect_allowed('ftp://b.test/x', True))
+        self.assertFalse(ui._redirect_allowed('file:///etc/passwd', True))
 
     def test_fetch_budget_also_covers_the_response_head(self):
         import socket
@@ -435,7 +434,51 @@ class SettingsPageTests(unittest.TestCase):
             verdict = ui.classify_source(url, allow_http=True)
         elapsed = clock.monotonic() - started
         self.assertIsNotNone(verdict['error'])
-        self.assertLess(elapsed, 6, 'a trickling status line must hit the same budget')
+        self.assertLess(elapsed, 3.5, 'a trickling status line must hit the same budget')
+
+    def test_timeouts_do_not_leak_threads(self):
+        import socket
+        import time as clock
+
+        listener = socket.socket()
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(('127.0.0.1', 0))
+        listener.listen(8)
+        self.addCleanup(listener.close)
+        stopping = threading.Event()
+
+        def drip(connection):
+            try:
+                for byte in b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n':
+                    connection.sendall(bytes([byte]))
+                    clock.sleep(0.2)
+            except OSError:
+                pass
+            finally:
+                connection.close()
+
+        def serve():
+            while not stopping.is_set():
+                try:
+                    connection, _ = listener.accept()
+                except OSError:
+                    return
+                threading.Thread(target=drip, args=(connection,), daemon=True).start()
+
+        threading.Thread(target=serve, daemon=True).start()
+        url = 'http://127.0.0.1:%d/desk.json' % listener.getsockname()[1]
+        baseline = threading.active_count()
+        try:
+            with mock.patch.object(ui, 'FETCH_DEADLINE_SECONDS', 1):
+                for _ in range(3):
+                    self.assertIsNotNone(ui.classify_source(url, allow_http=True)['error'])
+            deadline = clock.monotonic() + 5
+            while clock.monotonic() < deadline and threading.active_count() > baseline + 1:
+                clock.sleep(0.1)
+            self.assertLessEqual(threading.active_count(), baseline + 1,
+                                 'a timed-out fetch must not leave its worker behind')
+        finally:
+            stopping.set()
 
 
     # request hygiene ---------------------------------------------------------

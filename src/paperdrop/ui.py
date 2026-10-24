@@ -17,20 +17,19 @@ from __future__ import annotations
 import argparse
 import hashlib
 import hmac
+import http.client
 import http.server
 import json
 import os
 import pathlib
 import secrets
+import socket
 import socketserver
 import subprocess
 import sys
 import tempfile
 import threading
-import time
-import urllib.error
 import urllib.parse
-import urllib.request
 import webbrowser
 
 from . import __version__
@@ -55,17 +54,39 @@ CONFIG_MODE = 0o600
 _WRITE_LOCK = threading.Lock()
 
 
-class _HttpOnlyRedirects(urllib.request.HTTPRedirectHandler):
-    """Follow the same schemes the CLI's Fetcher allows, and keep a small cap."""
-    max_redirections = 5
-    allow_http = True
+def _redirect_allowed(target, allow_http):
+    scheme = urllib.parse.urlsplit(target).scheme.lower()
+    return scheme in (('http', 'https') if allow_http else ('https',))
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        allowed = ('http', 'https') if self.allow_http else ('https',)
-        if urllib.parse.urlsplit(newurl).scheme.lower() not in allowed:
-            raise urllib.error.HTTPError(newurl, code, 'redirect to a non-http scheme refused',
-                                         headers, fp)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+def _connect(url, timeout):
+    """Open, connect and send one GET; the caller keeps the connection to close it."""
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme not in ('http', 'https') or not parts.hostname:
+        raise ValueError('not an http(s) URL')
+    path = parts.path or '/'
+    if parts.query:
+        path += '?' + parts.query
+    factory = http.client.HTTPSConnection if parts.scheme == 'https' else http.client.HTTPConnection
+    connection = factory(parts.hostname, parts.port, timeout=timeout)
+    connection.connect()  # bounded by the socket timeout, so it cannot leak forever
+    connection.request('GET', path, headers={'User-Agent': 'PaperDrop/' + __version__,
+                                             'Accept': '*/*'})
+    return connection
+
+
+def _quiet_close(connection):
+    sock = getattr(connection, 'sock', None)
+    try:
+        if sock is not None:
+            sock.shutdown(socket.SHUT_RDWR)  # wakes a blocked recv immediately
+    except OSError:
+        pass
+    try:
+        if connection is not None:
+            connection.close()
+    except Exception:
+        pass
 
 PAGE = """<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8">
@@ -311,26 +332,35 @@ def status_payload(config_path):
 
 
 def _fetch_source(source_url, allow_http, budget=None):
-    """Fetch with a wall-clock budget covering connect, headers and body.
+    """Fetch with a wall-clock budget covering connect, headers, redirects and body.
 
     A per-socket timeout is not enough: a server that trickles one byte just under the
-    timeout never trips it, and both the status line and the body would wait forever.
-    So the whole fetch runs in a worker thread and is abandoned -- socket closed -- the
-    moment the budget expires.
+    timeout never trips it, and both the status line and the body would wait forever. The
+    fetch therefore runs in a worker thread, the caller stops waiting at the budget, and
+    the connection (held as soon as it exists) is shut down -- which also ends the worker.
     """
     if budget is None:
         budget = FETCH_DEADLINE_SECONDS
     holder = {}
 
     def fetch():
-        redirects = _HttpOnlyRedirects()
-        redirects.allow_http = allow_http
-        opener = urllib.request.build_opener(redirects)
-        request = urllib.request.Request(source_url, headers={
-            'User-Agent': 'PaperDrop/' + __version__, 'Accept': '*/*'})
+        connection = None
         try:
-            with opener.open(request, timeout=min(15, budget)) as response:
-                holder['response'] = response
+            url = source_url
+            for _ in range(6):
+                connection = _connect(url, min(15, budget))
+                holder['connection'] = connection
+                response = connection.getresponse()
+                if response.status in (301, 302, 303, 307, 308):
+                    location = response.getheader('Location')
+                    if not location:
+                        raise ValueError('redirect without a Location header')
+                    target = urllib.parse.urljoin(url, location)
+                    if not _redirect_allowed(target, allow_http):
+                        raise ValueError('redirect to a non-http(s) scheme refused')
+                    _quiet_close(connection)
+                    url = target
+                    continue
                 blocks, total = [], 0
                 while True:
                     block = response.read1(256 * 1024)
@@ -343,25 +373,23 @@ def _fetch_source(source_url, allow_http, budget=None):
                 holder['payload'] = b''.join(blocks)
                 holder['content_type'] = response.headers.get('Content-Type', '')
                 holder['status'] = response.status
-        except BaseException as error:  # a closed socket after the deadline lands here
+                return
+            raise ValueError('too many redirects')
+        except BaseException as error:  # a shutdown after the deadline lands here
             holder['error'] = error
 
     worker = threading.Thread(target=fetch, daemon=True)
     worker.start()
     worker.join(budget)
     if worker.is_alive():
-        # Closing the response can itself block until the in-flight recv returns, so the
-        # socket is torn down from a throwaway thread and the caller returns immediately.
-        response = holder.get('response')
-
-        def abandon():
-            try:
-                if response is not None:
-                    response.close()
-            except Exception:
-                pass
-
-        threading.Thread(target=abandon, daemon=True).start()
+        connection = holder.get('connection')
+        try:
+            sock = getattr(connection, 'sock', None)
+            if sock is not None:
+                sock.shutdown(socket.SHUT_RDWR)  # wakes the blocked read, unblocks the worker
+        except OSError:
+            pass
+        threading.Thread(target=_quiet_close, args=(connection,), daemon=True).start()
         return {'error': TimeoutError('source took longer than %ss' % budget)}
     if 'error' in holder:
         return {'error': holder['error']}
