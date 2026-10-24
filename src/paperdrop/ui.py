@@ -27,6 +27,8 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
@@ -46,10 +48,22 @@ PRESETS = [
 MAX_BODY = 64 * 1024
 MAX_FETCH = 64 * 1024 * 1024
 MAX_LOG_LINES = 400
+FETCH_DEADLINE_SECONDS = 20
 CONFIG_MODE = 0o600
 
 # One writer at a time: two concurrent applies must not interleave read/write/rollback.
 _WRITE_LOCK = threading.Lock()
+
+
+class _HttpOnlyRedirects(urllib.request.HTTPRedirectHandler):
+    """Follow http(s) redirects only, like the CLI's Fetcher, and keep a small cap."""
+    max_redirections = 5
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urllib.parse.urlsplit(newurl).scheme.lower() not in ('http', 'https'):
+            raise urllib.error.HTTPError(newurl, code, 'redirect to a non-http scheme refused',
+                                         headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 PAGE = """<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8">
@@ -125,7 +139,7 @@ th{color:#8b93a7;font-weight:600}
 const TOKEN = new URLSearchParams(location.search).get('t') || '';
 let CURRENT = null, PREVIEWED = null, BUSY = false;
 const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function setBusy(v){ BUSY = v; document.querySelectorAll('button').forEach(b => { if (b.id !== 'refresh') b.disabled = v; }); if (!v) $('apply').disabled = !PREVIEWED; }
 function invalidate(){ PREVIEWED = null; $('apply').disabled = true; $('applyNote').textContent = '输入已修改，请重新预览。'; }
 async function api(path, body){
@@ -143,14 +157,14 @@ function renderStatus(s){
   CURRENT = s;
   const st = s.state || {}, ok = st.last_success || {}, at = st.last_attempt || {};
   $('status').innerHTML = kv([
-    ['版本', esc(s.version)],
+    ['版本', s.version],
     ['配置', s.config_path],
     ['图源', s.source.url + (s.source.mode === 'image' ? '（image 模式）' : '')],
     ['每天运行', s.schedule.daily_time + '　补检查 ' + s.schedule.catch_up_interval_minutes + ' 分钟　屏幕轮询 ' + s.schedule.screen_poll_seconds + ' 秒'],
     ['上次成功', (ok.local_date || '—') + (ok.finished_at ? '　' + ok.finished_at : '')],
     ['上次检查', (at.local_date || '—') + (at.detail ? '　' + at.detail : '')],
     ['定时任务', s.schedule_state],
-    ['平台', esc(s.platform)],
+    ['平台', s.platform],
   ]);
   $('time').value = s.schedule.daily_time;
   $('url').value = s.source.url;
@@ -302,15 +316,29 @@ def classify_source(source_url, allow_http=False):
     if scheme == 'http' and not allow_http:
         return {'kind': None, 'rows': [],
                 'error': '明文 http 被配置拒绝（http.allow_http 为 false），请用 https'}
+    deadline = time.monotonic() + FETCH_DEADLINE_SECONDS
     try:
+        opener = urllib.request.build_opener(_HttpOnlyRedirects)
         request = urllib.request.Request(source_url, headers={
             'User-Agent': 'PaperDrop/' + __version__, 'Accept': '*/*'})
-        with urllib.request.urlopen(request, timeout=15) as response:
-            payload = response.read(MAX_FETCH + 1)
+        with opener.open(request, timeout=min(15, FETCH_DEADLINE_SECONDS)) as response:
+            blocks, total = [], 0
+            while True:
+                if time.monotonic() > deadline:
+                    raise TimeoutError('source took longer than %ss' % FETCH_DEADLINE_SECONDS)
+                block = response.read(256 * 1024)
+                if not block:
+                    break
+                total += len(block)
+                if total > MAX_FETCH:
+                    raise ValueError('source is larger than %d bytes' % MAX_FETCH)
+                blocks.append(block)
+            payload = b''.join(blocks)
             content_type = response.headers.get('Content-Type', '')
             status = response.status
     except Exception as error:
-        return {'kind': None, 'rows': [], 'error': '%s: %s' % (type(error).__name__, error)}
+        return {'kind': None, 'rows': [], 'url': source_url,
+                'error': '%s: %s' % (type(error).__name__, error)}
     rows = [['HTTP', str(status)], ['Content-Type', content_type or '—'],
             ['大小', '%d 字节' % len(payload)], ['sha256', hashlib.sha256(payload).hexdigest()[:24] + '…']]
     if 'json' in content_type.lower() or payload[:1] in (b'{', b'['):
@@ -321,9 +349,9 @@ def classify_source(source_url, allow_http=False):
         rows += [['识别为', '清单（manifest）'], ['日期', str(target.date)],
                  ['尺寸', '%s×%s' % (target.width, target.height)],
                  ['图片 URL', target.url]]
-        return {'kind': 'manifest', 'rows': rows, 'error': None}
+        return {'kind': 'manifest', 'rows': rows, 'url': source_url, 'error': None}
     rows += [['识别为', '图片直链（没有哈希校验）']]
-    return {'kind': 'image', 'rows': rows, 'error': None}
+    return {'kind': 'image', 'rows': rows, 'url': source_url, 'error': None}
 
 
 def _validate(candidate):
@@ -337,7 +365,7 @@ def _validate(candidate):
         pathlib.Path(handle.name).unlink(missing_ok=True)
 
 
-def _prepare(config_path, daily_time, source_url):
+def _prepare(config_path, daily_time, source_url, verdict=None):
     """Work out the exact configuration that would be written, without writing it."""
     raw = json.loads(pathlib.Path(config_path).read_text(encoding='utf-8'))
     current_time = raw.get('schedule', {}).get('daily_time')
@@ -351,7 +379,8 @@ def _prepare(config_path, daily_time, source_url):
 
     messages, ok = [], True
     if source_url != current_url:
-        verdict = classify_source(source_url, allow_http)
+        if verdict is None or verdict.get('url') != source_url:
+            verdict = classify_source(source_url, allow_http)
         if verdict['error']:
             ok = False
             messages.append({'level': 'error', 'text': verdict['error']})
@@ -441,8 +470,14 @@ def _backup(config_path, original_text):
 def apply_changes(config_path, daily_time, source_url):
     """Serialised: validate, back up, write atomically, re-read, reinstall, else restore."""
     config_path = pathlib.Path(config_path)
+    # Classify before taking the write lock: a slow source must not block other writers.
     with _WRITE_LOCK:
-        prepared = _prepare(config_path, daily_time, source_url)
+        current = json.loads(config_path.read_text(encoding='utf-8'))
+    verdict = None
+    if source_url != current.get('source', {}).get('url'):
+        verdict = classify_source(source_url, bool(current.get('http', {}).get('allow_http')))
+    with _WRITE_LOCK:
+        prepared = _prepare(config_path, daily_time, source_url, verdict=verdict)
         if not prepared['ok']:
             raise ValueError('; '.join(m['text'] for m in prepared['messages'] if m['level'] == 'error'))
         if not prepared['changes']:
@@ -495,13 +530,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
     config_path = pathlib.Path('.')
 
     def _host_ok(self):
-        host = (self.headers.get('Host') or '').split(':')[0].strip('[]')
+        raw = (self.headers.get('Host') or '').strip()
+        if raw.startswith('[') and ']' in raw:
+            host = raw[1:raw.find(']')]
+        else:
+            host = raw.split(':', 1)[0]
         return host in ('127.0.0.1', 'localhost', '::1')
 
     def _token_ok(self, query):
         if not self.token:
             return False
-        return hmac.compare_digest(query.get('t', [''])[0], self.token)
+        presented = query.get('t', [''])[0]
+        try:
+            return hmac.compare_digest(presented.encode('utf-8'), self.token.encode('utf-8'))
+        except (UnicodeError, TypeError):
+            return False
 
     def _same_site(self):
         site = (self.headers.get('Sec-Fetch-Site') or '').lower()
@@ -561,7 +604,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if parsed.path == '/api/log':
                 config, resolved = load_config(self.config_path)
                 paths = Paths.from_config(config, config_file=resolved)
-                lines = query.get('lines', ['200'])[0]
+                try:
+                    lines = int(query.get('lines', ['200'])[0])
+                except (TypeError, ValueError):
+                    return self._send(400, {'error': 'lines must be an integer'})
                 return self._send(200, {'text': log_tail(paths, lines)})
         except Exception as error:
             return self._send(500, {'error': str(error)})

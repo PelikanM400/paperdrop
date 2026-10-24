@@ -353,6 +353,23 @@ class SettingsPageTests(unittest.TestCase):
                 ui.serve(self.config_path, port=0, open_browser=False)
         self.assertEqual(captured['address'][0], '127.0.0.1')
 
+    # the 0.2.1 cleanups -------------------------------------------------------
+    def test_non_ascii_token_is_refused_without_a_traceback(self):
+        status, _ = request(self.url('/', token='%E4%B8%AD%E6%96%87'))
+        self.assertEqual(status, 403)
+
+    def test_ipv6_host_header_is_understood(self):
+        status, _ = request(self.url('/'), host='[::1]:8765')
+        self.assertEqual(status, 200)
+
+    def test_log_with_a_non_numeric_line_count(self):
+        status, _ = request(self.url('/api/log?lines=abc'))
+        self.assertEqual(status, 400)
+
+    def test_page_escapes_apostrophes_and_does_not_double_escape(self):
+        self.assertIn("'&#39;'", ui.PAGE)
+        self.assertIn("['版本', s.version]", ui.PAGE)
+
 
     # request hygiene ---------------------------------------------------------
     def test_post_requires_json(self):
