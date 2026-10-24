@@ -10,9 +10,10 @@ All notable changes to PaperDrop are recorded here. The format follows
 - `paperdrop ui`: a non-ASCII token (a mangled `?t=`) raised `TypeError` inside
   `hmac.compare_digest`, which dropped the connection and printed a traceback. Tokens are
   now compared as UTF-8 bytes and a bad one is answered with 403.
-- `paperdrop ui`: the source check has a real 20 s total budget — it reads incrementally
-  (`read1`), so a slow-trickling source can no longer stall a request for minutes — and
-  the fetch happens outside the write lock, so it cannot block another save.
+- `paperdrop ui`: the source check now runs under a real wall-clock budget of 20 s that
+  covers connect, response headers and body — a source that trickles a byte at a time can
+  no longer stall a request — and the fetch happens outside the write lock, so it cannot
+  block another save.
 - `paperdrop ui`: redirects are only followed when their scheme is allowed by the
   configuration (`http` needs `http.allow_http`), matching the CLI's fetcher.
 - `paperdrop ui`: `Host: [::1]:port` is parsed correctly, `/api/log?lines=abc` answers 400

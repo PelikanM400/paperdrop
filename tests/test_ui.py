@@ -408,6 +408,35 @@ class SettingsPageTests(unittest.TestCase):
             handler.redirect_request(urllib.request.Request('https://a.test/x'), None,
                                     302, 'Found', {}, 'http://b.test/x')
 
+    def test_fetch_budget_also_covers_the_response_head(self):
+        import socket
+        import time as clock
+
+        listener = socket.socket()
+        listener.bind(('127.0.0.1', 0))
+        listener.listen(1)
+        self.addCleanup(listener.close)
+
+        def drip_head():
+            connection, _ = listener.accept()
+            try:
+                for byte in b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n':
+                    connection.sendall(bytes([byte]))
+                    clock.sleep(0.25)
+            except OSError:
+                pass
+            finally:
+                connection.close()
+
+        threading.Thread(target=drip_head, daemon=True).start()
+        url = 'http://127.0.0.1:%d/desk.json' % listener.getsockname()[1]
+        started = clock.monotonic()
+        with mock.patch.object(ui, 'FETCH_DEADLINE_SECONDS', 2):
+            verdict = ui.classify_source(url, allow_http=True)
+        elapsed = clock.monotonic() - started
+        self.assertIsNotNone(verdict['error'])
+        self.assertLess(elapsed, 6, 'a trickling status line must hit the same budget')
+
 
     # request hygiene ---------------------------------------------------------
     def test_post_requires_json(self):

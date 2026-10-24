@@ -310,6 +310,64 @@ def status_payload(config_path):
     }
 
 
+def _fetch_source(source_url, allow_http, budget=None):
+    """Fetch with a wall-clock budget covering connect, headers and body.
+
+    A per-socket timeout is not enough: a server that trickles one byte just under the
+    timeout never trips it, and both the status line and the body would wait forever.
+    So the whole fetch runs in a worker thread and is abandoned -- socket closed -- the
+    moment the budget expires.
+    """
+    if budget is None:
+        budget = FETCH_DEADLINE_SECONDS
+    holder = {}
+
+    def fetch():
+        redirects = _HttpOnlyRedirects()
+        redirects.allow_http = allow_http
+        opener = urllib.request.build_opener(redirects)
+        request = urllib.request.Request(source_url, headers={
+            'User-Agent': 'PaperDrop/' + __version__, 'Accept': '*/*'})
+        try:
+            with opener.open(request, timeout=min(15, budget)) as response:
+                holder['response'] = response
+                blocks, total = [], 0
+                while True:
+                    block = response.read1(256 * 1024)
+                    if not block:
+                        break
+                    total += len(block)
+                    if total > MAX_FETCH:
+                        raise ValueError('source is larger than %d bytes' % MAX_FETCH)
+                    blocks.append(block)
+                holder['payload'] = b''.join(blocks)
+                holder['content_type'] = response.headers.get('Content-Type', '')
+                holder['status'] = response.status
+        except BaseException as error:  # a closed socket after the deadline lands here
+            holder['error'] = error
+
+    worker = threading.Thread(target=fetch, daemon=True)
+    worker.start()
+    worker.join(budget)
+    if worker.is_alive():
+        # Closing the response can itself block until the in-flight recv returns, so the
+        # socket is torn down from a throwaway thread and the caller returns immediately.
+        response = holder.get('response')
+
+        def abandon():
+            try:
+                if response is not None:
+                    response.close()
+            except Exception:
+                pass
+
+        threading.Thread(target=abandon, daemon=True).start()
+        return {'error': TimeoutError('source took longer than %ss' % budget)}
+    if 'error' in holder:
+        return {'error': holder['error']}
+    return holder
+
+
 def classify_source(source_url, allow_http=False):
     """Fetch a candidate URL and say what it is. Values are plain text, never HTML."""
     scheme = source_url.split(':', 1)[0].lower()
@@ -318,33 +376,13 @@ def classify_source(source_url, allow_http=False):
     if scheme == 'http' and not allow_http:
         return {'kind': None, 'rows': [], 'url': source_url,
                 'error': '明文 http 被配置拒绝（http.allow_http 为 false），请用 https'}
-    deadline = time.monotonic() + FETCH_DEADLINE_SECONDS
-    try:
-        redirects = _HttpOnlyRedirects()
-        redirects.allow_http = allow_http
-        opener = urllib.request.build_opener(redirects)
-        request = urllib.request.Request(source_url, headers={
-            'User-Agent': 'PaperDrop/' + __version__, 'Accept': '*/*'})
-        with opener.open(request, timeout=min(15, FETCH_DEADLINE_SECONDS)) as response:
-            blocks, total = [], 0
-            while True:
-                if time.monotonic() > deadline:
-                    raise TimeoutError('source took longer than %ss' % FETCH_DEADLINE_SECONDS)
-                # read1 returns as soon as *some* data is available, so the deadline above
-                # is actually reached on a slow drip; read(n) would wait for the full block.
-                block = response.read1(256 * 1024)
-                if not block:
-                    break
-                total += len(block)
-                if total > MAX_FETCH:
-                    raise ValueError('source is larger than %d bytes' % MAX_FETCH)
-                blocks.append(block)
-            payload = b''.join(blocks)
-            content_type = response.headers.get('Content-Type', '')
-            status = response.status
-    except Exception as error:
+    outcome = _fetch_source(source_url, allow_http)
+    if 'error' in outcome:
         return {'kind': None, 'rows': [], 'url': source_url,
-                'error': '%s: %s' % (type(error).__name__, error)}
+                'error': '%s: %s' % (type(outcome['error']).__name__, outcome['error'])}
+    payload = outcome['payload']
+    content_type = outcome['content_type']
+    status = outcome['status']
     rows = [['HTTP', str(status)], ['Content-Type', content_type or '—'],
             ['大小', '%d 字节' % len(payload)], ['sha256', hashlib.sha256(payload).hexdigest()[:24] + '…']]
     if 'json' in content_type.lower() or payload[:1] in (b'{', b'['):
