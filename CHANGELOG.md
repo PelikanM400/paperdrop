@@ -4,7 +4,15 @@ All notable changes to PaperDrop are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions use
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] — 2026-10-24
+
+### Added
+- **`paperdrop ui`** — an optional local settings page. It listens on `127.0.0.1` only,
+  needs a random per-run token, refuses cross-site writes, and edits the same
+  `config.json` the command line uses: preview, backup, atomic write, then a read-back
+  check. Changing the daily time re-runs `install` and rolls the config back if that
+  fails. It can also trigger `run`/`update`, `pause`/`resume` and show the log tail.
+  The command line and its behaviour are unchanged; `ui` never runs on its own.
 
 ## [0.1.14] — 2026-10-13
 

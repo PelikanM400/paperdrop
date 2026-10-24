@@ -59,6 +59,10 @@ def build_parser():
     sub.add_parser('doctor', help='check this machine for the prerequisites')
     sub.add_parser('apply-cached', help='re-apply the cached image (no network)')
     sub.add_parser('watch', help='apply the cached image, then re-apply when screens change')
+    ui = sub.add_parser('ui', help='open a local settings page in your browser')
+    ui.add_argument('--port', type=int, default=8765, metavar='PORT',
+                    help='loopback port to listen on (default: 8765)')
+    ui.add_argument('--no-open', action='store_true', help='do not launch a browser')
     # Accept --json/--verbose after the subcommand as well as before it.
     for child in sub.choices.values():
         child.add_argument('--json', action='store_true', default=argparse.SUPPRESS,
@@ -142,6 +146,10 @@ def main(argv=None):
             return _apply_cached(args, config, paths)
         if command == 'watch':
             return _watch(args, config, paths)
+        if command == 'ui':
+            from .ui import serve
+            return serve(config_path, port=getattr(args, 'port', 8765),
+                         open_browser=not getattr(args, 'no_open', False))
     except PaperDropError as error:
         print('paperdrop: %s' % error, file=sys.stderr)
         return 1

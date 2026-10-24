@@ -218,8 +218,15 @@ image to confirm the SHA-256 matches. It writes nothing to your cache.
 | `paperdrop doctor` | Check Python, Pillow, the desktop, the helper and the writable paths. |
 | `paperdrop apply-cached` | Re-apply the cached image, no network. |
 | `paperdrop watch` | Apply the cache, then keep every screen up to date: native layout and wake events plus a poll of all screens (macOS). |
+| `paperdrop ui` | Open a local settings page: daily time, wallpaper source (with link checks), run/update, pause/resume and the log. |
 
 Add `--json` for machine-readable output, anywhere on the command line.
+
+`paperdrop ui` is optional and strictly local: it listens on `127.0.0.1` only, requires
+a random token from the URL it prints, refuses cross-site writes, and edits the same
+`config.json` the command line uses (validated first, backed up, written atomically,
+re-read afterwards). A change to the daily time re-runs `install` and is rolled back if
+that fails. The command line is unchanged and `ui` never starts by itself.
 
 ## Where things live
 
@@ -501,8 +508,13 @@ python3 tools/validate-manifest.py https://example.com/desk.json --check-image
 | `paperdrop doctor` | 检查 Python、Pillow、桌面环境、小工具、可写路径。 |
 | `paperdrop apply-cached` | 重新应用缓存图片，不联网。 |
 | `paperdrop watch` | 先应用缓存，之后在屏幕布局变化时重新应用（macOS）。 |
+| `paperdrop ui` | 打开本地设置页面：启动时间、图源（带链接检查）、运行/更新、暂停/恢复、日志。 |
 
 `--json` 可加在命令行任意位置，输出机器可读格式。
+
+`paperdrop ui` 是可选的、纯本地的：只监听 `127.0.0.1`，需要它打印出来的随机 token，
+拒绝跨站写入，编辑的就是命令行用的那份 `config.json`（先校验、备份、原子写入、再回读）。
+改启动时间会自动重跑 `install`，失败则回滚。命令行行为不变，`ui` 也绝不会自己启动。
 
 ## 文件位置
 
