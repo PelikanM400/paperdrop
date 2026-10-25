@@ -22,6 +22,7 @@ import plistlib
 import shutil
 import subprocess
 
+from ..distribution import homebrew_opt_prefix
 from ..errors import PlatformError
 from ..journal import shrink_file
 from .base import Platform, runtime_command
@@ -56,6 +57,14 @@ class MacOS(Platform):
             if candidate.is_file():
                 return str(candidate)
             raise PlatformError('apply.helper_path does not exist: %s' % candidate)
+        opt = homebrew_opt_prefix()
+        if opt is not None:
+            candidate = opt / 'bin' / HELPER_NAME
+            if candidate.is_file():
+                return str(candidate)
+            raise PlatformError('Homebrew helper "%s" was not found: %s. '
+                                'Repair the Homebrew installation or set apply.helper_path.'
+                                % (HELPER_NAME, candidate))
         found = shutil.which(HELPER_NAME)
         if found:
             return found

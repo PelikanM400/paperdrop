@@ -445,7 +445,10 @@ class IsolatedIntegrationTests(unittest.TestCase):
                         'import sysconfig; print(sysconfig.get_path("purelib"))'], text=True).strip())
             package = site / 'paperdrop'
             package.mkdir()
-            (package / 'upgrade.py').write_bytes(Path(u.__file__).read_bytes())
+            # Install the real modules used by this slice, including its package-
+            # local ownership helper. Copying upgrade.py alone is not a package.
+            for module in ('upgrade.py', 'distribution.py'):
+                (package / module).write_bytes(Path(u.__file__).with_name(module).read_bytes())
             dist = site / ('paperdrop-' + u.__version__ + '.dist-info')
             dist.mkdir()
             (prefix / 'pipx_metadata.json').write_text(json.dumps({

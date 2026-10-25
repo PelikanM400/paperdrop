@@ -4,6 +4,28 @@ All notable changes to PaperDrop are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions use
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] — 2026-10-25
+
+Still a pre-release. Homebrew packaging and automated command checks do not imply
+real-device wallpaper, monitor or scheduling acceptance.
+
+### Added
+- Homebrew installation support through the third-party `pelikanm400/tap` tap;
+  the macOS Formula compiles and installs the native helper.
+
+### Fixed
+- A package-owned Homebrew marker makes `paperdrop upgrade` direct users to
+  `brew upgrade pelikanm400/tap/paperdrop` without running pipx or accessing the
+  release feed. Pipx installations retain their existing upgrade behavior.
+- Homebrew-generated scheduler commands use the stable `opt/paperdrop` Python
+  path, isolated imports and a helper-aware PATH, rather than a versioned Cellar
+  path that `brew cleanup` can remove. Explicit helper configuration still wins.
+
+### Changed
+- README now recommends Brew; pipx remains documented as an alternative.
+- Brew package installation/upgrade does not implicitly create configuration,
+  enable a schedule, change paused state or launch the settings UI.
+
 ## [0.3.0] — 2026-10-25
 
 Still a pre-release: first-run setup was verified through an isolated backend and real

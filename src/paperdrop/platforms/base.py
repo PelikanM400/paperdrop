@@ -5,6 +5,7 @@ import pathlib
 import shutil
 import sys
 
+from ..distribution import homebrew_opt_prefix
 from ..errors import PlatformError
 
 
@@ -14,6 +15,13 @@ def runtime_command():
     Works both from an installed package and from a source checkout, so the
     generated scheduler entry does not depend on how PaperDrop was installed.
     """
+    opt = homebrew_opt_prefix()
+    if opt is not None:
+        # opt survives keg replacement and brew cleanup; -I ignores inherited
+        # PYTHONPATH/user-site so a stale checkout cannot hijack scheduled jobs.
+        argv = [str(opt / 'libexec' / 'bin' / 'python'), '-I', '-m', 'paperdrop']
+        path = '%s:%s:/usr/bin:/bin:/usr/sbin:/sbin' % (opt / 'bin', opt.parent.parent / 'bin')
+        return argv, {'PATH': path}
     package = pathlib.Path(__file__).resolve().parents[1]          # .../paperdrop
     parent = package.parent                                        # .../src or site-packages
     argv = [sys.executable, '-m', 'paperdrop']

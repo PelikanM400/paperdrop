@@ -13,6 +13,13 @@
 > check Swift source contracts; the updated helper still needs macOS compilation
 > and visual wake/display verification.
 
+## Homebrew route
+
+For a managed package that compiles the native helper during installation, use
+[the Homebrew guide](homebrew.md). The manual helper-building steps below apply
+to pipx/source installations, not to the Brew package. Do not keep two same-named
+installations on PATH without following the migration guide.
+
 ## Requirements
 
 - macOS with the Swift toolchain and the macOS SDK. The Command Line Tools are

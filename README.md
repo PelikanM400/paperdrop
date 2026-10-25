@@ -7,30 +7,31 @@ PaperDrop downloads, verifies and applies the image for you. No account or API k
 
 ## Install and configure
 
-With Python and pipx available:
+With Homebrew available:
 
 ```bash
-pipx install https://github.com/PelikanM400/paperdrop/releases/download/v0.3.0/paperdrop-0.3.0-py3-none-any.whl
-pipx ensurepath
+brew install pelikanm400/tap/paperdrop
 ```
 
-Open a new terminal, then run `paperdrop install`. The settings page opens in your
-browser from a desktop terminal. Choose a source and time, check the settings,
-then apply them to enable daily changes. Nothing is enabled before you confirm.
-For prerequisites and setup details, see the [documentation](docs/README.md).
+Then run `paperdrop install` from a desktop terminal to open settings. Choose a
+source and time, check the settings, then apply them to enable daily changes.
+Nothing is enabled before you confirm. The macOS helper is built during Brew installation.
+See the [Homebrew guide](docs/homebrew.md) for requirements, migration and removal;
+[pipx and other setup methods](docs/README.md) remain available.
 
 ## Everyday commands
 
 | Command | Purpose |
 |---|---|
 | `paperdrop update` | Fetch and apply the current wallpaper now. |
-| `paperdrop upgrade` | Upgrade PaperDrop itself; open settings after a successful upgrade in an interactive desktop terminal. |
+| `paperdrop upgrade` | Upgrade a standard pipx installation; Brew installations show the `brew upgrade` command instead. |
 | `paperdrop status` | Show the current configuration and wallpaper status. |
 | `paperdrop ui` | Open settings; on first use, configure the source and daily schedule. |
 
-`upgrade` requires a standard pipx installation. Use `paperdrop upgrade --no-ui` to
-skip the settings page. Closing the browser does not stop the local service;
-press **Ctrl+C** in its terminal to exit. Settings listen on `127.0.0.1` only.
+Brew users upgrade with `brew upgrade pelikanm400/tap/paperdrop`. With pipx,
+`paperdrop upgrade --no-ui` skips settings. Closing the browser does not stop the
+local settings service; press **Ctrl+C** in its terminal to exit. Settings listen
+on `127.0.0.1` only.
 
 ## About
 
@@ -51,27 +52,25 @@ PaperDrop includes no wallpaper images; remote image rights remain with their ow
 
 ## 安装与首次设置
 
-准备好 Python 和 pipx 后，运行：
+已有 Homebrew 时运行：
 
 ```bash
-pipx install https://github.com/PelikanM400/paperdrop/releases/download/v0.3.0/paperdrop-0.3.0-py3-none-any.whl
-pipx ensurepath
+brew install pelikanm400/tap/paperdrop
 ```
 
-打开一个新终端，然后运行 `paperdrop install`。在桌面终端运行后会自动打开设置页。
-选择图源和时间，检查后点击应用，才会启用每日更换；确认前不自动启用。
-环境准备和详细操作见[使用文档](docs/README.md)。
+然后在桌面终端运行 `paperdrop install` 打开设置页。选择图源和时间，检查后点击应用，才会启用每日更换；确认前不自动启用。macOS 原生组件在 Brew 安装时编译，无需另行手动构建。
+环境准备、旧安装迁移和卸载见 [Homebrew 指南](docs/homebrew.md)；[pipx 等安装方式](docs/README.md)继续保留。
 
 ## 常用命令
 
 | 命令 | 作用 |
 |---|---|
 | `paperdrop update` | 立即获取并更换壁纸。 |
-| `paperdrop upgrade` | 升级纸落软件；在交互式桌面终端升级成功后自动打开设置页。 |
+| `paperdrop upgrade` | 升级标准 pipx 安装；Brew 安装版会提示使用 `brew upgrade`。 |
 | `paperdrop status` | 查看当前配置和壁纸状态。 |
 | `paperdrop ui` | 打开设置页；首次使用时设置图源和每日更换时间。 |
 
-`upgrade` 适用于标准 pipx 安装；加 `--no-ui` 可跳过网页。关闭网页不会停止本地服务，在原终端按 **Ctrl+C** 退出。设置页仅监听本机 `127.0.0.1`。
+Brew 安装版用 `brew upgrade pelikanm400/tap/paperdrop` 升级。pipx 版加 `--no-ui` 可跳过升级后的网页。关闭网页不会停止本地设置服务，在原终端按 **Ctrl+C** 退出。设置页仅监听本机 `127.0.0.1`。
 
 ## 项目说明
 

@@ -25,6 +25,7 @@ import urllib.request
 import http.client
 
 from . import __version__
+from .distribution import homebrew_opt_prefix
 
 
 class UpgradeError(RuntimeError):
@@ -334,6 +335,10 @@ def upgrade_software():
     A failed install may need repair with the original installer; no rollback or
     UI launch is attempted. User configuration and services are never touched.
     """
+    if homebrew_opt_prefix() is not None:
+        raise UpgradeError('PaperDrop is managed by Homebrew. Run '
+                           '`brew upgrade pelikanm400/tap/paperdrop`; '
+                           'configuration and services are unchanged.')
     installation = _installation()
     data = _download(RELEASES_URL, MAX_RELEASE_BYTES, 'json')
     try:

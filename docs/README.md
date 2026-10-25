@@ -5,13 +5,28 @@ Use these guides for prerequisites, native components, scheduling and troublesho
 
 README 只保留安装入口和四个常用命令；环境准备、原生组件、定时与故障处理放在这里。
 
-- [macOS setup and native helper](install-macos.md)
+- [Homebrew install, upgrade, migration and removal](homebrew.md)
+- [macOS pipx/source setup and native helper](install-macos.md)
 - [Linux Xfce setup](install-linux-xfce.md)
 - [Wallpaper sources](sources.md)
 - [JSON manifest format](manifest-spec.md)
 - [Troubleshooting](troubleshooting.md)
 - [Changelog](../CHANGELOG.md)
 - [Release notes and known limitations](https://github.com/PelikanM400/paperdrop/releases)
+
+## pipx alternative / pipx 备用安装
+
+With Python 3.9+ and pipx available:
+
+```bash
+pipx install https://github.com/PelikanM400/paperdrop/releases/download/v0.3.1/paperdrop-0.3.1-py3-none-any.whl
+pipx ensurepath
+```
+
+Open a new terminal and run `paperdrop install`. macOS pipx users still need the
+native helper; follow the macOS guide. To replace an existing older pipx installation,
+use `pipx install --force` with that wheel URL. Do not use pipx to overwrite a Brew
+installation. If remaining on pipx 0.3.0+, `paperdrop upgrade` is the normal path.
 
 ## First-time configuration
 
@@ -36,8 +51,10 @@ terminals do not automatically open or run settings.
 
 - `paperdrop update`: force a wallpaper fetch/apply, not a software upgrade.
 - `paperdrop upgrade`: check official GitHub releases, verify the selected release
-  assets, then upgrade a standard pipx installation. Published pre-releases are included
-  while PaperDrop remains on its pre-release channel. No downgrade is performed.
+  assets, then upgrade a standard pipx installation. Published pre-releases with a
+  numeric `vX.Y.Z` tag are included. No downgrade is performed. A Homebrew-managed
+  installation instead directs you to `brew upgrade pelikanm400/tap/paperdrop`
+  without checking GitHub or modifying its environment.
 - `paperdrop upgrade --no-ui`: the same upgrade without starting settings.
 
 An automatic settings page is launched only after a version change succeeds, and only
