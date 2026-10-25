@@ -8,6 +8,9 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
+import pathlib
+import subprocess
 import sys
 import threading
 
@@ -50,8 +53,12 @@ def build_parser():
     update = sub.add_parser('update', help='replace the wallpaper now (same as "run --force")')
     update.set_defaults(force=True)
 
+    upgrade = sub.add_parser('upgrade', help='upgrade PaperDrop itself, then open settings')
+    upgrade.add_argument('--no-ui', action='store_true', help='upgrade without opening settings')
+
     sub.add_parser('status', help='show config, cache and desktop state')
-    sub.add_parser('install', help='install the daily user-level schedule')
+    install = sub.add_parser('install', help='configure the daily schedule, then open settings')
+    install.add_argument('--no-ui', action='store_true', help='install the schedule without opening settings')
     uninstall = sub.add_parser('uninstall', help='remove the schedule (keeps the cache)')
     uninstall.add_argument('--purge', action='store_true', help='also delete the cached images')
     sub.add_parser('pause', help='stop the schedule without removing it')
@@ -102,6 +109,46 @@ def _json(payload):
     print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
 
 
+def _auto_ui_allowed(args):
+    """Automatic popups are for interactive desktop use, never jobs or SSH."""
+    if getattr(args, 'no_ui', False) or args.json:
+        return False
+    if any(os.environ.get(key) for key in ('SSH_CONNECTION', 'SSH_CLIENT', 'SSH_TTY', 'CI')):
+        return False
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return False
+    return sys.platform == 'darwin' or (sys.platform.startswith('linux') and
+                                      bool(os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')))
+
+
+def _upgrade(args):
+    from .upgrade import UpgradeError, upgrade_software
+    try:
+        result = upgrade_software()
+    except UpgradeError as error:
+        if args.json:
+            _json({'ok': False, 'error': str(error)})
+        else:
+            print('paperdrop: %s' % error, file=sys.stderr)
+        return 1
+    if args.json:
+        _json(result)
+    else:
+        _print(('upgraded to PaperDrop %s' if result['changed'] else
+                'PaperDrop %s is already up to date') % result['version'])
+    if result['changed'] and not args.no_ui and not args.json and _auto_ui_allowed(args):
+        command = [result['python'], '-I', '-m', 'paperdrop']
+        if args.config:
+            command += ['--config', args.config]
+        command += ['ui']
+        try:
+            return subprocess.call(command)
+        except OSError:
+            print('paperdrop: upgraded, but settings could not start; run "paperdrop ui".', file=sys.stderr)
+            return 1
+    return 0
+
+
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -117,8 +164,25 @@ def main(argv=None):
 
     build_logger(None, console=True, verbose=args.verbose)  # until we know the log path
 
+    if command == 'upgrade':
+        return _upgrade(args)
+
+    if command == 'ui':
+        from .ui import serve
+        return serve(args.config, port=getattr(args, 'port', 8765),
+                     open_browser=not getattr(args, 'no_open', False))
+
     if command == 'doctor':
         return _doctor(args)
+
+    install_ui = (command == 'install' and not args.no_ui and not args.json
+                  and _auto_ui_allowed(args))
+    if install_ui:
+        from .paths import default_config_file
+        target = pathlib.Path(args.config) if args.config else default_config_file()
+        if not os.path.lexists(target.expanduser()):
+            from .ui import serve
+            return serve(args.config)
 
     try:
         config, config_path = _load(args)
@@ -137,7 +201,11 @@ def main(argv=None):
         if command == 'status':
             return _status(args, config, paths)
         if command == 'install':
-            return _install(args, config, paths)
+            result = _install(args, config, paths)
+            if result == 0 and install_ui:
+                from .ui import serve
+                return serve(str(config_path))
+            return result
         if command == 'uninstall':
             return _uninstall(args, config, paths, purge=getattr(args, 'purge', False))
         if command in ('pause', 'resume'):
@@ -146,10 +214,6 @@ def main(argv=None):
             return _apply_cached(args, config, paths)
         if command == 'watch':
             return _watch(args, config, paths)
-        if command == 'ui':
-            from .ui import serve
-            return serve(config_path, port=getattr(args, 'port', 8765),
-                         open_browser=not getattr(args, 'no_open', False))
     except PaperDropError as error:
         print('paperdrop: %s' % error, file=sys.stderr)
         return 1

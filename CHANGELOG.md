@@ -4,6 +4,31 @@ All notable changes to PaperDrop are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions use
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-10-25
+
+Still a pre-release: first-run setup was verified through an isolated backend and real
+Chromium; real OS scheduler installation, macOS/Xfce device acceptance and a real pipx
+upgrade against the published release remain separate evidence.
+
+### Added
+- First-run settings: `paperdrop ui` opens without an existing configuration, checks a
+  JSON manifest, then creates the configuration and schedules it only after explicit
+  confirmation. Nothing is scheduled or written before Apply.
+- `paperdrop upgrade`: checks the official GitHub release feed (including pre-releases),
+  verifies the wheel checksum and installation type, and upgrades only a canonical pipx
+  installation. Interactive desktop terminals open the new version's settings after
+  success; `--no-ui`, JSON, SSH, CI and noninteractive terminals do not. Existing
+  configuration and schedule state are untouched.
+- `paperdrop install` opens first-run settings when no configuration exists in an
+  interactive desktop terminal, and opens settings after a successful install otherwise.
+  `--no-ui` keeps the direct scheduler-only path.
+
+### Changed
+- `paperdrop update` still means "fetch the wallpaper now"; software upgrades use
+  `paperdrop upgrade`.
+- README reduced to the project description, installation entry point and four everyday
+  commands. Setup details moved to `docs/README.md` and the platform guides.
+
 ## [0.2.3] — 2026-10-25
 
 Still a pre-release: the owner approved the offline UI preview visually. Installed

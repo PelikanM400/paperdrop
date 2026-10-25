@@ -10,7 +10,14 @@ Safety rules:
   JSON-only POSTs with an Origin/Sec-Fetch-Site check (no cross-site writes);
 * every write is validated first, the old file is backed up, the new one is written
   atomically, then re-read and compared;
-* a schedule change re-runs ``install``; if that fails the config is rolled back.
+* a schedule change re-runs ``install`` (always with ``--no-ui``); if that fails the
+  config is rolled back.
+
+First run: with no config file yet, the page offers the example config plus a preset
+source *in memory only*. Nothing is written, fetched or scheduled until the user checks
+and confirms; the first apply must validate a manifest, creates the config 0600 without
+ever overwriting an existing entry, installs the schedule, and removes both again if the
+install fails.
 """
 from __future__ import annotations
 
@@ -33,7 +40,7 @@ import urllib.parse
 import webbrowser
 
 from . import __version__
-from .config import load_config
+from .config import example_config, load_config, validate
 from .paths import Paths, default_config_file
 from .sources import _reject_repository_page, parse_manifest
 
@@ -101,6 +108,8 @@ FONT_PATH = pathlib.Path(__file__).with_name('assets') / 'fonts' / 'source-han-s
 def _run_cli(config_path, *args, timeout=300):
     """Drive the unchanged CLI in a child process and capture what it said."""
     command = [sys.executable, '-m', 'paperdrop', '--config', str(config_path), *args]
+    if args and args[0] == 'install' and '--no-ui' not in args:
+        command.append('--no-ui')  # internal scheduling must never reopen onboarding
     try:
         done = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -154,8 +163,26 @@ def _schedule_state(config):
             'disabled': '已停止', 'inactive': '已停止', 'paused': '已暂停'}.get(str(state), str(state))
 
 
+def _ui_config(config_path):
+    """Read the existing raw config, or offer a preset only in memory.
+
+    lstat deliberately distinguishes an absent path from dangling symlinks and
+    other occupied targets. Never interpret an unreadable/invalid file as new.
+    """
+    path = pathlib.Path(config_path)
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        raw = example_config()
+        raw['source']['url'] = PRESETS[0][1]
+        return raw, path, True
+    load_config(path)  # fail closed on invalid existing configuration
+    return json.loads(path.read_text(encoding='utf-8')), path, False
+
+
 def status_payload(config_path):
-    config, resolved = load_config(config_path)
+    raw, resolved, onboarding = _ui_config(config_path)
+    config = validate(raw)
     paths = Paths.from_config(config, config_file=resolved)
     schedule, source = config['schedule'], config['source']
     platform = 'macOS' if sys.platform == 'darwin' else ('linux' if sys.platform.startswith('linux') else sys.platform)
@@ -167,8 +194,9 @@ def status_payload(config_path):
         'schedule': {'daily_time': schedule['daily_time'],
                      'catch_up_interval_minutes': schedule['catch_up_interval_minutes'],
                      'screen_poll_seconds': schedule['screen_poll_seconds']},
-        'schedule_state': _schedule_state(config),
-        'state': _read_state(paths),
+        'onboarding': onboarding,
+        'schedule_state': '尚未配置' if onboarding else _schedule_state(config),
+        'state': {} if onboarding else _read_state(paths),
         'platform': platform,
         'log_file': str(paths.log_file),
     }
@@ -299,7 +327,7 @@ def _validate(candidate):
 
 def _prepare(config_path, daily_time, source_url, verdict=None):
     """Work out the exact configuration that would be written, without writing it."""
-    raw = json.loads(pathlib.Path(config_path).read_text(encoding='utf-8'))
+    raw, _, onboarding = _ui_config(config_path)
     current_time = raw.get('schedule', {}).get('daily_time')
     current_source = raw.get('source', {})
     current_url = current_source.get('url')
@@ -310,7 +338,7 @@ def _prepare(config_path, daily_time, source_url, verdict=None):
     candidate.setdefault('source', {})['url'] = source_url
 
     messages, ok = [], True
-    if source_url != current_url:
+    if onboarding or source_url != current_url:
         if verdict is None or verdict.get('url') != source_url:
             verdict = classify_source(source_url, allow_http)
         if verdict['error']:
@@ -325,7 +353,10 @@ def _prepare(config_path, daily_time, source_url, verdict=None):
         else:
             candidate['source']['mode'] = 'manifest'
     try:
-        _validate(candidate)
+        if onboarding:
+            validate(candidate)
+        else:
+            _validate(candidate)
     except Exception as error:
         ok = False
         messages.append({'level': 'error', 'text': str(error)})
@@ -341,7 +372,8 @@ def _prepare(config_path, daily_time, source_url, verdict=None):
     if candidate['source'].get('mode') != current_source.get('mode'):
         changes.append(['source.mode', current_source.get('mode') or '', candidate['source'].get('mode')])
     return {'ok': ok, 'messages': messages, 'changes': changes,
-            'needs_install': daily_time != current_time,
+            'onboarding': onboarding,
+            'needs_install': onboarding or daily_time != current_time,
             'candidate': candidate if ok else None}
 
 
@@ -353,7 +385,7 @@ def preview_changes(config_path, daily_time, source_url):
 
 def check_preview(config_path, daily_time, source_url):
     """Combine a one-off source check with a read-only draft preview."""
-    config, _ = load_config(config_path)
+    config, _, _ = _ui_config(config_path)
     verdict = classify_source(source_url, bool(config.get('http', {}).get('allow_http')))
     prepared = _prepare(config_path, daily_time, source_url, verdict=verdict)
     source_error = verdict.get('error')
@@ -372,23 +404,39 @@ def check_preview(config_path, daily_time, source_url):
     return prepared
 
 
-def _atomic_write(path, text, mode=CONFIG_MODE):
+def _atomic_write(path, text, mode=CONFIG_MODE, create_only=False):
     path = pathlib.Path(path)
     temporary = path.with_name(path.name + '.tmp-' + secrets.token_hex(6))
     descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, mode)
+    identity = os.fstat(descriptor)
+    published = False
     try:
         with os.fdopen(descriptor, 'w', encoding='utf-8') as handle:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
         os.chmod(temporary, mode)
-        os.replace(temporary, path)
+        if create_only:
+            # link publishes the complete fsynced file atomically, but unlike
+            # replace refuses every occupied target (including dangling links).
+            os.link(temporary, path)
+            published = True
+            temporary.unlink()
+        else:
+            os.replace(temporary, path)
         directory = os.open(path.parent, os.O_RDONLY)
         try:
             os.fsync(directory)
         finally:
             os.close(directory)
     except BaseException:
+        if published:
+            try:
+                current = path.lstat()
+                if (current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino):
+                    path.unlink()
+            except OSError:
+                pass
         try:
             temporary.unlink()
         except OSError:
@@ -414,19 +462,68 @@ def _backup(config_path, original_text):
     raise RuntimeError('could not create a unique backup')
 
 
-def apply_changes(config_path, daily_time, source_url):
+def apply_changes(config_path, daily_time, source_url, create_only=False):
     """Serialised: validate, back up, write atomically, re-read, reinstall, else restore."""
     config_path = pathlib.Path(config_path)
     # Classify before taking the write lock: a slow source must not block other writers.
     with _WRITE_LOCK:
-        current = json.loads(config_path.read_text(encoding='utf-8'))
+        if create_only and os.path.lexists(config_path):
+            raise ValueError('configuration already exists; refresh settings before applying')
+        current, _, onboarding = _ui_config(config_path)
     verdict = None
-    if source_url != current.get('source', {}).get('url'):
+    if onboarding or source_url != current.get('source', {}).get('url'):
         verdict = classify_source(source_url, bool(current.get('http', {}).get('allow_http')))
     with _WRITE_LOCK:
         prepared = _prepare(config_path, daily_time, source_url, verdict=verdict)
         if not prepared['ok']:
             raise ValueError('; '.join(m['text'] for m in prepared['messages'] if m['level'] == 'error'))
+        if onboarding:
+            config_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            try:
+                _atomic_write(config_path, json.dumps(prepared['candidate'], ensure_ascii=False, indent=2) + '\n',
+                              create_only=True)
+            except FileExistsError:
+                raise ValueError('configuration already exists; refresh settings before applying') from None
+            try:
+                reloaded, _ = load_config(config_path)
+                if (reloaded['schedule']['daily_time'] != daily_time
+                        or reloaded['source']['url'] != source_url):
+                    raise ValueError('written configuration did not read back as expected')
+            except Exception:
+                config_path.unlink(missing_ok=True)
+                raise
+            try:
+                install = _run_cli(config_path, 'install')
+            except Exception as error:
+                install = {'ok': False, 'exit_code': None, 'output': str(error)}
+            if install['ok']:
+                return {'ok': True, 'backup': None, 'install': install,
+                        'changes': prepared['changes']}
+            # The CLI needs the candidate config to remove a partial schedule.
+            # Never reinstall defaults here: there was no previous installation.
+            try:
+                restore = _run_cli(config_path, 'uninstall')
+            except Exception as error:
+                restore = {'ok': False, 'exit_code': None, 'output': str(error)}
+            try:
+                config_path.unlink()
+                removed = True
+            except OSError:
+                removed = False
+            if not removed:
+                note = ('install failed and the new configuration could not be removed '
+                        'from %s; delete it manually' % config_path)
+            elif restore['ok']:
+                note = 'install failed; new configuration and schedule rolled back'
+            else:
+                note = ('install failed; new configuration removed, but removing the new '
+                        'schedule also failed — schedule cleanup is incomplete; run '
+                        '"paperdrop uninstall" manually with a valid configuration')
+            said = ' '.join(str(install.get('output') or '').split())[:400]
+            if said:
+                note += '; installer said: ' + said
+            return {'ok': False, 'backup': None, 'install': install, 'restore': restore,
+                    'changes': prepared['changes'], 'error': note}
         if not prepared['changes']:
             return {'ok': True, 'backup': None, 'install': None, 'changes': []}
 
@@ -550,6 +647,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if parsed.path == '/api/status':
                 return self._send(200, status_payload(self.config_path))
             if parsed.path == '/api/log':
+                if _ui_config(self.config_path)[2]:
+                    return self._send(200, {'text': '', 'empty': True})
                 config, resolved = load_config(self.config_path)
                 paths = Paths.from_config(config, config_file=resolved)
                 try:
@@ -574,6 +673,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except (ValueError, TypeError) as error:
             return self._send(400, {'error': 'bad json: %s' % error})
         try:
+            if parsed.path in ('/api/run', '/api/schedule'):
+                _, _, onboarding = _ui_config(self.config_path)
+                if onboarding:
+                    return self._send(400, {'error': '请先检查并确认应用首次配置，再使用快捷操作。'})
             if parsed.path == '/api/check-preview':
                 return self._send(200, check_preview(self.config_path, str(body.get('daily_time') or ''),
                                                     str(body.get('source_url') or '')))
@@ -588,7 +691,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                         'kind': verdict['kind'], 'rows': verdict['rows']})
             if parsed.path == '/api/apply':
                 result = apply_changes(self.config_path, str(body.get('daily_time') or ''),
-                                       str(body.get('source_url') or ''))
+                                       str(body.get('source_url') or ''),
+                                       create_only=body.get('onboarding') is True)
                 return self._send(200 if result['ok'] else 500, result)
             if parsed.path == '/api/run':
                 args = ['run'] + (['--force'] if body.get('force') else [])
@@ -616,11 +720,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
         sys.stderr.write('paperdrop ui: ' + message + '\n')
 
 
+def _serve_path(config_path):
+    """Absolute path; resolve the final component only for an existing, readable config.
+
+    A dangling symlink must stay occupied (it is not a fresh install), while a
+    symlink to a real config keeps the old behaviour of editing the target file.
+    """
+    raw = pathlib.Path(os.path.abspath(pathlib.Path(config_path).expanduser()))
+    try:
+        raw.lstat()
+    except OSError:
+        return raw
+    try:
+        raw.stat()
+    except OSError:
+        return raw
+    return raw.resolve()
+
+
 def serve(config_path=None, port=8765, open_browser=True):
-    config_path = pathlib.Path(config_path).expanduser().resolve() if config_path else default_config_file()
-    if not config_path.is_file():
-        raise SystemExit('paperdrop: no config at %s (run "paperdrop install" first)' % config_path)
-    load_config(config_path)  # fail fast on an invalid config
+    config_path = _serve_path(config_path) if config_path else default_config_file()
+    _, _, onboarding = _ui_config(config_path)  # fail fast on invalid/occupied targets
     token = secrets.token_urlsafe(16)
     Handler.token = token
     Handler.config_path = config_path
@@ -632,6 +752,10 @@ def serve(config_path=None, port=8765, open_browser=True):
     url = 'http://127.0.0.1:%d/?t=%s' % (server.server_address[1], token)
     print('PaperDrop settings (local only)')
     print('config: %s' % config_path)
+    if onboarding:
+        print('尚未配置：检查并确认应用后才会写入配置并启用定时更换。')
+        print('Not configured yet: nothing is written or scheduled until you check and '
+              'confirm the settings here.')
     print('open:   %s' % url)
     if os.environ.get(PAGE_OVERRIDE_ENV):
         print('page:   %s (override)' % os.environ[PAGE_OVERRIDE_ENV])

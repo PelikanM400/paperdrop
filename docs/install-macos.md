@@ -73,18 +73,19 @@ being stretched. `--fit` keeps the whole image visible and may leave bars.
 ## 3. Configure and run
 
 ```bash
-mkdir -p ~/.config/paperdrop
-.venv/bin/paperdrop --print-example-config > ~/.config/paperdrop/config.json
-$EDITOR ~/.config/paperdrop/config.json      # set source.url
-.venv/bin/paperdrop doctor
-.venv/bin/paperdrop run
-```
-
-## 4. Install the schedule
-
-```bash
 .venv/bin/paperdrop install
 ```
+
+From a desktop terminal this opens first-run settings; check the source, then apply
+to create the configuration and schedule. `paperdrop install --no-ui` keeps the
+scheduler-only path for scripts that already have a configuration.
+
+```bash
+.venv/bin/paperdrop doctor
+.venv/bin/paperdrop update
+```
+
+## 4. Schedule details
 
 Two LaunchAgents are written to `~/Library/LaunchAgents`:
 

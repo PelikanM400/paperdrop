@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-function setup() {
+function setup(onboarding = false) {
   const html = fs.readFileSync(process.env.PAPERDROP_UI_HTML || path.join(__dirname, '../src/paperdrop/assets/ui.html'), 'utf8');
   class Element {
     constructor(tag, attrs = '') {
@@ -37,7 +37,7 @@ function setup() {
   const elements = [...html.matchAll(/<(\w+)\b([^>]*)>/g)].map(([, tag, attrs]) => new Element(tag, attrs));
   const ids = Object.fromEntries(elements.filter(e => e.id).map(e => [e.id, e]));
   const requests = [];
-  const status = {version: 'test', config_path: '/fixture/config.json', platform: 'test',
+  const status = {onboarding, version: 'test', config_path: '/fixture/config.json', platform: 'test',
     source: {url: 'https://fixture.invalid/a.json'}, schedule: {daily_time: '07:35'}, schedule_state: '已启用'};
   const sandbox = {URLSearchParams, location: {search: '?t=test'}, confirm: () => true,
     setTimeout: () => 0, localStorage: {getItem: () => null, setItem() {}},
@@ -205,4 +205,54 @@ test('apply revalidates the visible payload even without an input event', async 
   await applying;
   assert.equal(ui.snapshot().preview, null);
   assert.equal(ui.snapshot().disabled, true);
+});
+
+const firstCheck = {ok: true, source_check: {ok: true}, changes: [], onboarding: true, needs_install: true};
+test('unchanged first-run defaults become applicable only after check and confirmation', async () => {
+  const ui = setup(true);
+  assert.equal(ui.snapshot().disabled, true);
+  assert.match(ui.ids['apply-note'].textContent, /首次使用/);
+  ui.run(`setLanguageAndOptions('en')`);
+  assert.match(ui.ids['apply-note'].textContent, /First run/);
+  ui.run(`setLanguageAndOptions('zh')`);
+  const check = beginCheck(ui); check.request.respond(firstCheck); await check.done;
+  assert.equal(ui.snapshot().disabled, false);
+  assert.deepEqual(ui.snapshot().preview, {daily_time: '07:35', source_url: ui.status.source.url, onboarding: true});
+  assert.match(ui.ids['result-body'].innerHTML, /创建.*配置.*定时/);
+  assert.match(ui.ids['apply-note'].textContent, /检查通过/);
+  ui.run(`confirm=()=>false`);
+  const count = ui.requests.length;
+  await ui.run(`$('apply').onclick()`);
+  assert.equal(ui.requests.length, count, 'cancel is not an apply');
+  ui.run(`confirm=()=>true`);
+  const applying = ui.run(`$('apply').onclick()`);
+  const apply = ui.requests.at(-1);
+  assert.match(apply.url, /^\/api\/apply/);
+  assert.deepEqual(JSON.parse(apply.options.body), {daily_time: '07:35', source_url: ui.status.source.url, onboarding: true});
+  apply.respond({ok: true, install: {ok: true}});
+  await new Promise(setImmediate);
+  ui.requests.at(-1).respond({...ui.status, onboarding: false});
+  await applying;
+  assert.equal(ui.snapshot().preview, null);
+  assert.equal(ui.ids.run.disabled, false);
+});
+
+test('first-run quick actions stay locked, including direct handler calls and busy reset', async () => {
+  const ui = setup(true);
+  for (const id of ['run', 'update', 'pause', 'resume']) assert.equal(ui.ids[id].disabled, true, id);
+  const count = ui.requests.length;
+  for (const id of ['run', 'update', 'pause', 'resume']) await ui.run(`$('${id}').onclick()`);
+  assert.equal(ui.requests.length, count);
+  ui.run(`setBusy(true);setBusy(false);setLanguageAndOptions('en')`);
+  for (const id of ['run', 'update', 'pause', 'resume']) assert.equal(ui.ids[id].disabled, true, id);
+});
+
+test('failed first-run check never enables Apply or quick actions', async () => {
+  const ui = setup(true);
+  const check = beginCheck(ui);
+  check.request.respond({...firstCheck, ok: false, source_check: {ok: false, error: 'bad manifest'}});
+  await check.done;
+  assert.equal(ui.snapshot().disabled, true);
+  assert.equal(ui.snapshot().preview, null);
+  assert.equal(ui.ids.resume.disabled, true);
 });
