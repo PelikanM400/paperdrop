@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "paperdrop"
-version = "0.2.2"
+version = "0.2.3"
 description = "A small daily wallpaper client for macOS and Linux (Xfce): fetch one image from a public source, verify it, cache it, apply it."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -33,3 +33,6 @@ package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+paperdrop = ["assets/ui.html", "assets/fonts/*.woff2", "assets/fonts/*.txt"]

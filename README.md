@@ -1,6 +1,6 @@
 # PaperDrop
 
-**English** · [中文](#paperdrop-中文说明)
+**English** · [中文](#paperdrop纸落中文说明)
 
 **One image a day, from a source you choose, verified before it touches your desktop.**
 
@@ -218,7 +218,7 @@ image to confirm the SHA-256 matches. It writes nothing to your cache.
 | `paperdrop doctor` | Check Python, Pillow, the desktop, the helper and the writable paths. |
 | `paperdrop apply-cached` | Re-apply the cached image, no network. |
 | `paperdrop watch` | Apply the cache, then keep every screen up to date: native layout and wake events plus a poll of all screens (macOS). |
-| `paperdrop ui` | Open a local settings page: daily time, wallpaper source (with link checks), run/update, pause/resume and the log. |
+| `paperdrop ui` | Open the bilingual local settings page: choose a preset or custom JSON manifest, set the daily time, check the configuration, apply or restore it, and inspect advanced details. |
 
 Add `--json` for machine-readable output, anywhere on the command line.
 
@@ -226,7 +226,10 @@ Add `--json` for machine-readable output, anywhere on the command line.
 a random token from the URL it prints, refuses cross-site writes, and edits the same
 `config.json` the command line uses (validated first, backed up, written atomically,
 re-read afterwards). A change to the daily time re-runs `install` and is rolled back if
-that fails. The command line is unchanged and `ui` never starts by itself.
+that fails. The built-in page and Source Han Sans CN font are bundled and served locally;
+it does not load third-party scripts, images or fonts. Closing the browser does not stop
+PaperDrop: press Ctrl+C in the terminal where `paperdrop ui` is running. The command line
+is unchanged and `ui` never starts by itself.
 
 Set `PAPERDROP_UI_PAGE=/path/to/page.html` to serve your own copy of the page instead of
 the built-in one — useful while editing it: change the file, refresh the browser, no
@@ -279,7 +282,8 @@ URLs and outcomes only — never credentials, because there are none.
 - Logs contain URLs and outcomes, never credentials (there are none to leak).
 - `paperdrop ui` is off unless you start it. It opens a listener on `127.0.0.1` only,
   reachable solely with a random per-run token from the URL it prints, refuses cross-site
-  writes, and serves one page with no external scripts or images.
+  writes, and serves one page with no third-party scripts, images or fonts (the bundled
+  Source Han Sans CN font is served locally under its included SIL Open Font License).
 
 ## Documentation
 
@@ -310,7 +314,7 @@ genuinely useful. The test suite runs offline:
 python -m unittest discover -s tests -t tests
 ```
 
-Please keep the project small and dependency-light: no GUI, no cloud service, no
+Please keep the project small and dependency-light: no separate desktop GUI, no cloud service, no
 gallery management, and no non-Xfce desktop environments (yet).
 
 ## How this project is built
@@ -340,13 +344,13 @@ is a bug report worth filing, and it will be corrected rather than explained awa
 
 ---
 
-# PaperDrop 中文说明
+# PaperDrop（纸落）中文说明
 
 [English](#paperdrop) · **中文**
 
 **每天一张图，来源由你指定；先校验，再动你的桌面。**
 
-PaperDrop 是一个小型的**每日壁纸客户端**，支持 **macOS** 与 **Linux（Xfce）**。你给它一个公开的壁纸源地址，它每天取回最新图片，校验后缓存，并把它设为你所有显示器的桌面壁纸。
+PaperDrop（纸落）是一个小型的**每日壁纸客户端**，支持 **macOS** 与 **Linux（Xfce）**。你给它一个公开的壁纸源地址，它每天取回最新图片，校验后缓存，并把它设为你所有显示器的桌面壁纸。
 
 它最初只是一个人自用的小工具（服务端每天发布一张图），整理后开源，或许这种形态对别人也有用。
 
@@ -515,13 +519,14 @@ python3 tools/validate-manifest.py https://example.com/desk.json --check-image
 | `paperdrop doctor` | 检查 Python、Pillow、桌面环境、小工具、可写路径。 |
 | `paperdrop apply-cached` | 重新应用缓存图片，不联网。 |
 | `paperdrop watch` | 先应用缓存，之后在屏幕布局变化时重新应用（macOS）。 |
-| `paperdrop ui` | 打开本地设置页面：启动时间、图源（带链接检查）、运行/更新、暂停/恢复、日志。 |
+| `paperdrop ui` | 打开中英双语本地设置页：选择预设或自定义 JSON 清单、设置每日时间、检查配置、应用或还原，并查看进阶信息。 |
 
 `--json` 可加在命令行任意位置，输出机器可读格式。
 
 `paperdrop ui` 是可选的、纯本地的：只监听 `127.0.0.1`，需要它打印出来的随机 token，
-拒绝跨站写入，编辑的就是命令行用的那份 `config.json`（先校验、备份、原子写入、再回读）。
-改启动时间会自动重跑 `install`，失败则回滚。命令行行为不变，`ui` 也绝不会自己启动。
+拒绝跨站写入，编辑的就是命令行用的那份 `config.json`（先校验、备份、原子写入、再回读）。改启动时间会自动重跑 `install`，失败则回滚。命令行行为不变，`ui` 也绝不会自己启动。
+
+内置页面和思源黑体字体随软件一起打包并从本地提供（字体附 SIL Open Font License 许可及来源说明）；内置页面不加载第三方脚本、图片或字体。关闭浏览器不会停止 PaperDrop；在运行 `paperdrop ui` 的终端按 Ctrl+C 退出。
 
 设了 `PAPERDROP_UI_PAGE=/某处/page.html` 就改为读取你自己的页面文件——改界面时用：
 改文件、刷新浏览器即可，不用重新打包。文件不存在或超过 2 MB 时回退到内置页面。
@@ -559,7 +564,7 @@ PaperDrop 会**保留最新的一半、丢掉其余**，并写一行说明。把
 - 下载有体积上限；图片有像素上限；清单读取也有小的字节预算。
 - 日志只包含地址与结果，不含任何凭据（本来就没有凭据可泄漏）。
 - `paperdrop ui` 不启动就不存在。它只在 `127.0.0.1` 上开一个监听，凭每次启动随机生成的
-  URL 令牌访问，拒绝一切跨站写入，页面不加载任何外部脚本或图片。
+  URL 令牌访问，拒绝一切跨站写入，内置页面不加载第三方脚本、图片或字体。
 
 ## 文档
 
@@ -587,7 +592,7 @@ MIT，见 [LICENSE](LICENSE)。
 python -m unittest discover -s tests -t tests
 ```
 
-请让这个项目保持小而轻：不加图形界面、不接云服务、不做图库管理，也暂时不扩展到 Xfce 之外的桌面环境。
+请让这个项目保持小而轻：除可选的本地设置网页外，不另加桌面 GUI，不接云服务、不做图库管理，也暂时不扩展到 Xfce 之外的桌面环境。
 
 ## 这个项目是怎么做出来的
 

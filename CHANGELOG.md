@@ -4,6 +4,30 @@ All notable changes to PaperDrop are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions use
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.3] — 2026-10-25
+
+Still a pre-release: the owner approved the offline UI preview visually. Installed
+browser interactions and platform scheduling remain subject to real-device acceptance.
+
+### Changed
+- Reworked the local settings page with Chinese/English controls, light/dark/system
+  themes, mutually exclusive preset/custom JSON sources, compact time/source controls,
+  and collapsible system information. The Chinese brand is PaperDrop 纸落; English
+  remains PaperDrop.
+- Bundled Source Han Sans CN WOFF2 and its SIL Open Font License and source notice.
+  The font is served locally with the same token/Host guards as the settings page.
+- Added a combined source-check/config-preview action, including checks for an
+  unchanged selected source; the legacy preview endpoint is retained.
+- The terminal explains in Chinese and English that closing the browser does not
+  stop the service and Ctrl+C exits it.
+
+### Fixed
+- Language switches preserve unsaved and checked drafts. Pending checks cannot
+  re-enable an outdated preview; applying verifies the payload against the visible
+  form, including edits, source-mode changes and refresh races.
+- Reject repository-page URLs before fetching them, and close source-check HTTP
+  responses and connections on all fetch paths.
+
 ## [0.2.2] — 2026-10-24
 
 ### Added

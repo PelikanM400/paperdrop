@@ -6,10 +6,13 @@ the internet; the one fetch test serves a manifest from a local directory.
 """
 from __future__ import annotations
 
+import email.message
 import http.server
+import io
 import json
 import os
 import pathlib
+import re
 import socketserver
 import tempfile
 import threading
@@ -36,7 +39,19 @@ def request(url, method='GET', body=None, headers=None, host=None):
         with urllib.request.urlopen(prepared, timeout=15) as response:
             return response.status, response.read().decode('utf-8', 'replace')
     except urllib.error.HTTPError as error:
-        return error.code, error.read().decode('utf-8', 'replace')
+        try:
+            return error.code, error.read().decode('utf-8', 'replace')
+        finally:
+            error.close()
+
+
+class RequestHelperTests(unittest.TestCase):
+    def test_request_closes_http_error_response(self):
+        error = urllib.error.HTTPError('http://127.0.0.1/test', 403, 'Forbidden', email.message.Message(), io.BytesIO(b'no'))
+        with mock.patch.object(urllib.request, 'urlopen', side_effect=error):
+            status, body = request('http://127.0.0.1/test')
+        self.assertEqual((status, body), (403, 'no'))
+        self.assertTrue(error.fp.closed)
 
 
 class SettingsPageTests(unittest.TestCase):
@@ -108,12 +123,59 @@ class SettingsPageTests(unittest.TestCase):
         status, _ = request(self.url('/'), host='evil.example')
         self.assertEqual(status, 403)
 
+    def test_page_matches_the_approved_brand_and_source_controls(self):
+        status, body = request(self.url('/'))
+        self.assertEqual(status, 200)
+        for text in ('<title>PaperDrop 纸落</title>', 'PaperDrop 纸落', '作者的 Gitee 横向壁纸库',
+                     '作者的 Gitee 纵向壁纸库', 'Bing 每日壁纸', '作者的 GitHub 壁纸库',
+                     '或使用自己的图源', 'JSON 壁纸清单地址', '每日换壁纸时间',
+                     '检查当前配置', '进阶配置和系统信息', 'data-theme-choice="system"',
+                     'data-lang="en"'):
+            with self.subTest(text=text):
+                self.assertIn(text, body)
+        self.assertNotIn('PaperDrop 设置', body)
+        self.assertIn('source-choice-hidden', body)
+        self.assertIn('id="custom-toggle"', body)
+        self.assertIn('id="restore"', body)
+
+    def test_time_and_source_controls_use_compact_alignment(self):
+        status, body = request(self.url('/'))
+        self.assertEqual(status, 200)
+        time_rule = re.search(r'\.time-row input\.control\{([^}]*)\}', body)
+        time_edit_rule = re.search(r'\.time-row input\.control::-webkit-datetime-edit\{([^}]*)\}', body)
+        time_fields_rule = re.search(r'\.time-row input\.control::-webkit-datetime-edit-fields-wrapper\{([^}]*)\}', body)
+        source_rule = re.search(r'\.select-row select\{([^}]*)\}', body)
+        option_rule = re.search(r'\.select-row option\{([^}]*)\}', body)
+        self.assertIsNotNone(time_rule)
+        self.assertIsNotNone(time_edit_rule)
+        self.assertIsNotNone(time_fields_rule)
+        self.assertIsNotNone(source_rule)
+        self.assertIsNotNone(option_rule)
+        self.assertIn('text-align:center', time_rule.group(1))
+        self.assertIn('text-align:center', time_edit_rule.group(1))
+        self.assertIn('display:flex;justify-content:center;width:100%', time_fields_rule.group(1))
+        self.assertIn('font-size:12px', source_rule.group(1))
+        self.assertIn('padding:9px 34px 9px 12px', source_rule.group(1))
+        self.assertIn('font-size:12px', option_rule.group(1))
+
+    def test_page_serves_the_bundled_font_through_a_token_guarded_route(self):
+        denied, _ = request(self.root + '/assets/fonts/source-han-sans-cn.woff2')
+        self.assertEqual(denied, 403)
+        url = self.url('/assets/fonts/source-han-sans-cn.woff2')
+        with urllib.request.urlopen(url, timeout=15) as response:
+            font = response.read()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.headers.get_content_type(), 'font/woff2')
+        self.assertTrue(font.startswith(b'wOF2'))
+        _, page = request(self.url('/'))
+        self.assertIn('/assets/fonts/source-han-sans-cn.woff2?t=test-token', page)
+
     def test_index_serves_the_page(self):
         status, body = request(self.url('/'))
         self.assertEqual(status, 200)
-        self.assertIn('PaperDrop 设置', body)
+        self.assertIn('<title>PaperDrop 纸落</title>', body)
+        self.assertIn('作者的 Gitee 横向壁纸库', body)
         self.assertNotIn('__PRESETS__', body)
-        self.assertIn('Gitee 横版', body)
 
     def test_status_reports_the_config(self):
         status, body = request(self.url('/api/status'))
@@ -141,8 +203,10 @@ class SettingsPageTests(unittest.TestCase):
         self.assertEqual(self.config_path.read_text(encoding='utf-8'), self.original_text)
 
     def test_preview_rejects_a_repository_page(self):
-        status, body = request(self.url('/api/preview'), 'POST',
-                              self.payload(source_url='https://github.com/PelikanM400/pelikan_daily_wallpaper'))
+        with mock.patch.object(ui, '_fetch_source', side_effect=AssertionError('repository pages must be rejected before fetching')) as fetch:
+            status, body = request(self.url('/api/preview'), 'POST',
+                                   self.payload(source_url='https://github.com/PelikanM400/pelikan_daily_wallpaper'))
+        fetch.assert_not_called()
         self.assertEqual(status, 200)
         payload = json.loads(body)
         self.assertFalse(payload['ok'])
@@ -153,6 +217,25 @@ class SettingsPageTests(unittest.TestCase):
         self.assertEqual(status, 200)
         payload = json.loads(body)
         self.assertTrue(payload['ok'])
+        self.assertEqual(payload['changes'], [])
+
+    def test_preview_checks_the_selected_source_even_when_unchanged(self):
+        directory = self.home_path / 'preview-source'
+        directory.mkdir()
+        (directory / 'desk.json').write_bytes(support.manifest_for(support.make_image()))
+        base = self.serve_directory(directory)
+        selected = base + '/desk.json'
+        config = json.loads(self.config_path.read_text(encoding='utf-8'))
+        config['source']['url'] = selected
+        self.write_config(config)
+
+        status, body = request(self.url('/api/check-preview'), 'POST', self.payload())
+
+        self.assertEqual(status, 200)
+        payload = json.loads(body)
+        self.assertTrue(payload['ok'], payload)
+        self.assertTrue(payload['source_check']['ok'], payload)
+        self.assertEqual(payload['source_check']['kind'], 'manifest')
         self.assertEqual(payload['changes'], [])
 
     # link check --------------------------------------------------------------
@@ -282,9 +365,10 @@ class SettingsPageTests(unittest.TestCase):
         dumped = json.dumps(payload['rows'], ensure_ascii=False)
         self.assertNotIn('<span', dumped)
         self.assertNotIn('<code', dumped)
-        # the page must escape every value it renders
-        self.assertIn('esc(v)', ui.PAGE)
-        self.assertNotIn("'</div><div>' + v + '</div>'", ui.PAGE)
+        # values entering the page's HTML sinks must pass through the escape function
+        self.assertIn('esc(row[0])', ui.PAGE)
+        self.assertIn('esc(row[1])', ui.PAGE)
+        self.assertNotIn("'<td>' + row[1] + '</td>'", ui.PAGE)
 
     def test_backups_are_unique_even_in_the_same_second(self):
         installed = mock.patch.object(ui, '_run_cli',
@@ -340,6 +424,30 @@ class SettingsPageTests(unittest.TestCase):
             ui.Handler.token = original
         self.assertEqual(status, 403)
 
+    def test_ui_explains_browser_close_and_ctrl_c_in_both_languages(self):
+        import contextlib
+        import io
+
+        class StubServer:
+            server_address = ('127.0.0.1', 8765)
+
+            def __init__(self, address, handler):
+                pass
+
+            def serve_forever(self):
+                raise KeyboardInterrupt
+
+            def server_close(self):
+                pass
+
+        output = io.StringIO()
+        with mock.patch.object(ui.socketserver, 'ThreadingTCPServer', StubServer):
+            with contextlib.redirect_stdout(output):
+                ui.serve(self.config_path, port=0, open_browser=False)
+        lines = output.getvalue().splitlines()
+        self.assertIn('关闭网页不会停止 PaperDrop；按本终端的 Ctrl+C 退出。', lines)
+        self.assertIn('Closing the browser does not stop PaperDrop; press Ctrl+C in this terminal to exit.', lines)
+
     def test_serve_binds_loopback_only(self):
         captured = {}
 
@@ -368,7 +476,44 @@ class SettingsPageTests(unittest.TestCase):
 
     def test_page_escapes_apostrophes_and_does_not_double_escape(self):
         self.assertIn("'&#39;'", ui.PAGE)
-        self.assertIn("['版本', s.version]", ui.PAGE)
+        self.assertIn("['版本',status.version]", ui.PAGE)
+
+    def test_fetch_closes_response_and_connection_after_reading(self):
+        class Response:
+            status = 200
+            headers = {'Content-Type': 'application/json'}
+
+            def __init__(self):
+                self.chunks = iter((b'{"ok":true}', b''))
+                self.closed = False
+
+            def read1(self, limit):
+                return next(self.chunks)
+
+            def close(self):
+                self.closed = True
+
+        class Connection:
+            sock = None
+
+            def __init__(self, response):
+                self.response = response
+                self.closed = False
+
+            def getresponse(self):
+                return self.response
+
+            def close(self):
+                self.closed = True
+
+        response = Response()
+        connection = Connection(response)
+        with mock.patch.object(ui, '_connect', return_value=connection):
+            outcome = ui._fetch_source('https://example.com/desk.json', allow_http=False, budget=1)
+
+        self.assertEqual(outcome['payload'], b'{"ok":true}')
+        self.assertTrue(response.closed)
+        self.assertTrue(connection.closed)
 
     def test_fetch_budget_stops_a_slow_drip(self):
         import socket
@@ -488,19 +633,19 @@ class SettingsPageTests(unittest.TestCase):
             status, body = request(self.url('/'))
         self.assertEqual(status, 200)
         self.assertIn('自定义页面', body)
-        self.assertIn('Gitee 横版', body, 'the preset placeholder is still filled in')
+        self.assertIn('作者的 Gitee 横向壁纸库', body, 'the preset placeholder is still filled in')
         self.assertNotIn('__PRESETS__', body)
 
     def test_page_override_falls_back_when_unusable(self):
         with mock.patch.dict(os.environ, {ui.PAGE_OVERRIDE_ENV: str(self.home_path / 'missing.html')}):
             status, body = request(self.url('/'))
         self.assertEqual(status, 200)
-        self.assertIn('PaperDrop 设置', body, 'a missing override must not break the page')
+        self.assertIn('<title>PaperDrop 纸落</title>', body, 'a missing override must not break the page')
 
         big = self.home_path / 'big.html'
         big.write_text('x' * (ui.PAGE_OVERRIDE_MAX + 10), encoding='utf-8')
         with mock.patch.dict(os.environ, {ui.PAGE_OVERRIDE_ENV: str(big)}):
-            self.assertIn('PaperDrop 设置', request(self.url('/'))[1])
+            self.assertIn('<title>PaperDrop 纸落</title>', request(self.url('/'))[1])
 
 
     # request hygiene ---------------------------------------------------------
@@ -509,7 +654,10 @@ class SettingsPageTests(unittest.TestCase):
         prepared.add_header('Content-Type', 'application/x-www-form-urlencoded')
         with self.assertRaises(urllib.error.HTTPError) as caught:
             urllib.request.urlopen(prepared, timeout=10)
-        self.assertEqual(caught.exception.code, 415)
+        try:
+            self.assertEqual(caught.exception.code, 415)
+        finally:
+            caught.exception.close()
 
     def test_post_rejects_cross_site_requests(self):
         status, _ = request(self.url('/api/preview'), 'POST', self.payload(),

@@ -1,0 +1,9 @@
+PaperDrop includes the Simplified Chinese variable webfont Source Han Sans CN.
+
+Project: Adobe Source Han Sans (https://github.com/adobe-fonts/source-han-sans)
+Font file: SourceHanSansCN-VF.otf.woff2
+Upstream revision: 6c709ca (release branch; version 2.005R)
+SHA-256: 7087698d52240614659957608d8c4ad446759aee3208409dc9f566412e7af8f4
+
+The font is distributed under the SIL Open Font License, Version 1.1.
+See OFL.txt in this directory for the complete license and copyright notice.

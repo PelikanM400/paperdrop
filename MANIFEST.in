@@ -3,4 +3,4 @@ recursive-include macos *.sh *.swift
 recursive-include docs *.md *.txt
 recursive-include linux *.service *.timer
 recursive-include tools *.py
-recursive-include tests *.py *.json *.txt
+recursive-include tests *.py *.json *.txt *.cjs

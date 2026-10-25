@@ -38,10 +38,14 @@ from .paths import Paths, default_config_file
 from .sources import _reject_repository_page, parse_manifest
 
 PRESETS = [
-    ('Gitee 横版（电脑）', 'https://gitee.com/PelikanM400/pelikan_daily_wallpaper/raw/master/desk.json'),
-    ('Gitee 竖版（手机）', 'https://gitee.com/PelikanM400/pelikan_daily_wallpaper/raw/master/current.json'),
-    ('Bing 4K（中转清单）', 'https://gitee.com/PelikanM400/pelikan_daily_wallpaper/raw/master/bing.json'),
-    ('GitHub 备用（横版）', 'https://raw.githubusercontent.com/PelikanM400/pelikan_daily_wallpaper/main/desk.json'),
+    ('作者的 Gitee 横向壁纸库', 'https://gitee.com/PelikanM400/pelikan_daily_wallpaper/raw/master/desk.json',
+     "Author's Gitee landscape wallpaper library"),
+    ('作者的 Gitee 纵向壁纸库', 'https://gitee.com/PelikanM400/pelikan_daily_wallpaper/raw/master/current.json',
+     "Author's Gitee portrait wallpaper library"),
+    ('Bing 每日壁纸', 'https://gitee.com/PelikanM400/pelikan_daily_wallpaper/raw/master/bing.json',
+     'Bing daily wallpaper'),
+    ('作者的 GitHub 壁纸库', 'https://raw.githubusercontent.com/PelikanM400/pelikan_daily_wallpaper/main/desk.json',
+     "Author's GitHub wallpaper library"),
 ]
 
 MAX_BODY = 64 * 1024
@@ -90,189 +94,8 @@ def _quiet_close(connection):
     except Exception:
         pass
 
-PAGE = """<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PaperDrop 设置</title>
-<style>
-:root{color-scheme:dark}
-*{box-sizing:border-box}
-body{margin:0;font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Noto Sans CJK SC",sans-serif;background:#0f1115;color:#e6e8ee}
-.wrap{max-width:940px;margin:0 auto;padding:28px 20px 60px}
-h1{font-size:20px;margin:0 0 4px}
-.sub{color:#8b93a7;font-size:13px}
-.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:22px}
-.card{background:#171a21;border:1px solid #242a35;border-radius:12px;padding:18px 20px;margin-bottom:16px}
-.card h2{font-size:14px;margin:0 0 14px;color:#aab2c5;font-weight:600}
-.row{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end}
-.field{flex:1 1 260px}
-label{display:block;font-size:12px;color:#8b93a7;margin-bottom:6px}
-input[type=time],input[type=url]{width:100%;padding:9px 11px;border-radius:8px;border:1px solid #2c3442;background:#0d1015;color:#e6e8ee;font-size:14px}
-input:focus{outline:2px solid #3b6cf6;outline-offset:1px;border-color:transparent}
-button{cursor:pointer;border:1px solid #2c3442;background:#1d2330;color:#dfe4ee;padding:8px 13px;border-radius:8px;font-size:13px;white-space:nowrap}
-button:hover:not(:disabled){border-color:#3b6cf6}
-button.primary{background:#2f5cf5;border-color:#2f5cf5;color:#fff;font-weight:600}
-button.danger{color:#ff8b8b}
-button:disabled{opacity:.5;cursor:default}
-.presets{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-.presets button{font-size:12px;padding:6px 10px;color:#aab2c5}
-.kv{display:grid;grid-template-columns:140px 1fr;gap:6px 14px;font-size:13.5px;word-break:break-word}
-.kv div:nth-child(odd){color:#8b93a7}
-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;word-break:break-all}
-pre{margin:0;background:#0d1015;border:1px solid #222833;border-radius:8px;padding:12px;overflow:auto;font-size:12px;max-height:260px;white-space:pre-wrap}
-.ok{color:#3fcf8e}.bad{color:#ff6b6b}.warn{color:#f5b942}.dim{color:#8b93a7}
-table{width:100%;border-collapse:collapse;font-size:13px}
-th,td{text-align:left;padding:7px 8px;border-bottom:1px solid #222833;vertical-align:top}
-th{color:#8b93a7;font-weight:600}
-.hidden{display:none}
-.note{font-size:12.5px;color:#8b93a7;margin-top:10px}
-</style></head><body><div class="wrap">
-<div class="head"><div><h1>PaperDrop 设置</h1><div class="sub" id="sub">仅本机访问 · 改动会写入 config.json（自动备份）</div></div>
-<button id="refresh">刷新</button></div>
-
-<div class="card"><h2>当前状态</h2><div class="kv" id="status">加载中…</div></div>
-
-<div class="card"><h2>修改配置</h2>
-  <div class="row">
-    <div class="field"><label>每天启动时间（24 小时制）</label><input id="time" type="time" step="60"></div>
-    <div class="field"><label>图源 URL（必须是 JSON 清单）</label><input id="url" type="url" spellcheck="false"></div>
-  </div>
-  <div class="presets" id="presets"></div>
-  <div class="row" style="margin-top:16px">
-    <button class="primary" id="preview">预览变更</button>
-    <button id="check">检查链接</button>
-    <button class="danger" id="apply" disabled>应用变更</button>
-    <button id="reset">还原</button>
-  </div>
-  <div class="note" id="applyNote">先预览，通过校验后才能应用。</div>
-</div>
-
-<div class="card"><h2>操作</h2>
-  <div class="row">
-    <button id="run">立即检查并更换壁纸</button>
-    <button id="update">强制重新下载当前源</button>
-    <button id="pause">暂停定时任务</button>
-    <button id="resume">恢复定时任务</button>
-    <button id="log">查看日志</button>
-  </div>
-</div>
-
-<div class="card hidden" id="resultCard"><h2 id="resultTitle">结果</h2><div id="result"></div></div>
-<div class="card hidden" id="logCard"><h2>日志（最后 200 行）</h2><pre id="logBody"></pre></div>
-</div>
-<script>
-const TOKEN = new URLSearchParams(location.search).get('t') || '';
-let CURRENT = null, PREVIEWED = null, BUSY = false;
-const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function setBusy(v){ BUSY = v; document.querySelectorAll('button').forEach(b => { if (b.id !== 'refresh') b.disabled = v; }); if (!v) $('apply').disabled = !PREVIEWED; }
-function invalidate(){ PREVIEWED = null; $('apply').disabled = true; $('applyNote').textContent = '输入已修改，请重新预览。'; }
-async function api(path, body){
-  const url = path + (path.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(TOKEN);
-  const opt = body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {};
-  const r = await fetch(url, opt);
-  let j;
-  try { j = await r.json(); } catch (e) { throw new Error('HTTP ' + r.status); }
-  if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
-  return j;
-}
-const kv = (rows) => rows.map(([k,v]) => '<div>' + esc(k) + '</div><div>' + esc(v) + '</div>').join('');
-function show(title, html){ $('resultTitle').textContent = title; $('result').innerHTML = html; $('resultCard').classList.remove('hidden'); }
-function renderStatus(s){
-  CURRENT = s;
-  const st = s.state || {}, ok = st.last_success || {}, at = st.last_attempt || {};
-  $('status').innerHTML = kv([
-    ['版本', s.version],
-    ['配置', s.config_path],
-    ['图源', s.source.url + (s.source.mode === 'image' ? '（image 模式）' : '')],
-    ['每天运行', s.schedule.daily_time + '　补检查 ' + s.schedule.catch_up_interval_minutes + ' 分钟　屏幕轮询 ' + s.schedule.screen_poll_seconds + ' 秒'],
-    ['上次成功', (ok.local_date || '—') + (ok.finished_at ? '　' + ok.finished_at : '')],
-    ['上次检查', (at.local_date || '—') + (at.detail ? '　' + at.detail : '')],
-    ['定时任务', s.schedule_state],
-    ['平台', s.platform],
-  ]);
-  $('time').value = s.schedule.daily_time;
-  $('url').value = s.source.url;
-  PREVIEWED = null; $('apply').disabled = true; $('applyNote').textContent = '先预览，通过校验后才能应用。';
-}
-async function loadStatus(){ try { renderStatus(await api('/api/status')); } catch (e) { show('无法读取状态', '<div class="bad">' + esc(e.message) + '</div>'); } }
-$('presets').innerHTML = __PRESETS__.map((p, i) => '<button data-i="' + i + '">' + esc(p[0]) + '</button>').join('');
-$('presets').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; $('url').value = __PRESETS__[Number(b.dataset.i)][1]; PREVIEWED = null; $('apply').disabled = true; };
-$('reset').onclick = () => { if (CURRENT) { $('time').value = CURRENT.schedule.daily_time; $('url').value = CURRENT.source.url; invalidate(); } };
-$('time').addEventListener('input', invalidate);
-$('url').addEventListener('input', invalidate);
-$('refresh').onclick = loadStatus;
-$('preview').onclick = async () => {
-  const body = {daily_time: $('time').value, source_url: $('url').value.trim()};
-  setBusy(true);
-  try {
-    const r = await api('/api/preview', body);
-    let html = '<div style="margin-bottom:10px">校验：' + (r.ok ? '<span class="ok">通过</span>' : '<span class="bad">有问题</span>') + '</div>';
-    if (r.messages && r.messages.length) html += '<ul>' + r.messages.map(m => '<li class="' + (m.level === 'error' ? 'bad' : 'dim') + '">' + esc(m.text) + '</li>').join('') + '</ul>';
-    if (r.changes && r.changes.length) {
-      html += '<table><thead><tr><th>字段</th><th>当前</th><th>改为</th></tr></thead><tbody>' + r.changes.map(c =>
-        '<tr><td>' + esc(c[0]) + '</td><td><code>' + esc(c[1]) + '</code></td><td><code>' + esc(c[2]) + '</code></td></tr>').join('') + '</tbody></table>';
-    } else { html += '<div class="dim">没有字段会变化。</div>'; }
-    if (r.needs_install) html += '<div class="warn" style="margin-top:10px">时间变化后会自动重装定时任务。</div>';
-    show('预览（未写入）', html);
-    PREVIEWED = r.ok && r.changes.length ? body : null;
-    $('apply').disabled = !PREVIEWED;
-    $('applyNote').textContent = PREVIEWED ? '确认无误后点"应用变更"：会备份旧配置并原子写入。' : '先预览，通过校验后才能应用。';
-  } catch (e) { show('预览失败', '<div class="bad">' + esc(e.message) + '</div>'); }
-  finally { setBusy(false); }
-};
-$('check').onclick = async () => {
-  setBusy(true);
-  try {
-    const r = await api('/api/check', {source_url: $('url').value.trim()});
-    let html = '<div style="margin-bottom:10px">' + (r.ok ? '<span class="ok">可用</span>' : '<span class="bad">不可用</span>') + '</div>';
-    html += '<div class="kv">' + kv(r.rows && r.rows.length ? r.rows : [['错误', r.error || '—']]) + '</div>';
-    show('链接检查', html);
-  } catch (e) { show('检查失败', '<div class="bad">' + esc(e.message) + '</div>'); }
-  finally { setBusy(false); }
-};
-$('apply').onclick = async () => {
-  if (!PREVIEWED) return;
-  if (!confirm('写入配置并' + ($('time').value !== (CURRENT && CURRENT.schedule.daily_time) ? '重装定时任务' : '更新图源') + '？')) return;
-  setBusy(true);
-  try {
-    const r = await api('/api/apply', PREVIEWED);
-    let html = '<div class="ok" style="margin-bottom:8px">已写入并校验通过</div><div class="kv">' + kv([
-      ['备份', r.backup || '—'],
-      ['定时任务', r.install ? (r.install.ok ? '已重装' : ('重装失败，配置已回滚' +
-          (r.restore ? (r.restore.ok ? '，旧调度已恢复' : '，旧调度恢复也失败') : ''))) : '无需重装'],
-    ]) + '</div>';
-    if (r.install && r.install.output) html += '<pre style="margin-top:10px">' + esc(r.install.output) + '</pre>';
-    show('应用结果', html);
-    await loadStatus();
-  } catch (e) { show('应用失败', '<div class="bad">' + esc(e.message) + '</div>'); }
-  finally { setBusy(false); }
-};
-async function action(path, body, title){
-  setBusy(true);
-  try {
-    const r = await api(path, body || {});
-    show(title, '<div class="' + (r.ok ? 'ok' : 'bad') + '" style="margin-bottom:8px">' + esc(r.summary || (r.ok ? '完成' : '失败')) + '</div>' +
-      (r.output ? '<pre>' + esc(r.output) + '</pre>' : ''));
-    await loadStatus();
-  } catch (e) { show(title + '失败', '<div class="bad">' + esc(e.message) + '</div>'); }
-  finally { setBusy(false); }
-}
-$('run').onclick = () => action('/api/run', {force:false}, '运行结果');
-$('update').onclick = () => { if (confirm('强制重新下载当前图源的图片？')) action('/api/run', {force:true}, '更新结果'); };
-$('pause').onclick = () => action('/api/schedule', {action:'pause'}, '暂停');
-$('resume').onclick = () => action('/api/schedule', {action:'resume'}, '恢复');
-$('log').onclick = async () => {
-  setBusy(true);
-  try {
-    const r = await api('/api/log?lines=200');
-    $('logBody').textContent = r.text || '（日志为空）';
-    $('logCard').classList.remove('hidden');
-  } catch (e) { show('读取日志失败', '<div class="bad">' + esc(e.message) + '</div>'); }
-  finally { setBusy(false); }
-};
-loadStatus();
-</script></body></html>"""
+PAGE = (pathlib.Path(__file__).with_name('assets') / 'ui.html').read_text(encoding='utf-8')
+FONT_PATH = pathlib.Path(__file__).with_name('assets') / 'fonts' / 'source-han-sans-cn.woff2'
 
 
 def _run_cli(config_path, *args, timeout=300):
@@ -295,23 +118,22 @@ def _read_state(paths):
         return {}
 
 
-def page_html():
-    """The page served at `/`. PAPERDROP_UI_PAGE overrides it with a file on disk.
-
-    That is a development aid: edit the HTML, refresh the browser, no rebuild. The file
-    is read on every request and falls back to the built-in page if it is missing, too
-    large or not UTF-8.
-    """
+def page_html(token=None):
+    """Return the packaged page, or a validated development override."""
     presets = json.dumps(PRESETS, ensure_ascii=False)
+    html = PAGE
     override = os.environ.get(PAGE_OVERRIDE_ENV)
     if override:
         try:
             path = pathlib.Path(override).expanduser()
             if path.is_file() and path.stat().st_size <= PAGE_OVERRIDE_MAX:
-                return path.read_text(encoding='utf-8').replace('__PRESETS__', presets).encode()
+                html = path.read_text(encoding='utf-8')
         except (OSError, UnicodeError):
             pass
-    return PAGE.replace('__PRESETS__', presets).encode()
+    active_token = token or getattr(Handler, 'token', '') or ''
+    font_url = '/assets/fonts/source-han-sans-cn.woff2?t=' + urllib.parse.quote(active_token, safe='')
+    return (html.replace('__PRESETS__', presets)
+            .replace('__PAPERDROP_FONT_URL__', font_url).encode('utf-8'))
 
 
 def _schedule_state(config):
@@ -365,36 +187,48 @@ def _fetch_source(source_url, allow_http, budget=None):
     holder = {}
 
     def fetch():
-        connection = None
         try:
             url = source_url
             for _ in range(6):
-                connection = _connect(url, min(15, budget))
-                holder['connection'] = connection
-                response = connection.getresponse()
-                if response.status in (301, 302, 303, 307, 308):
-                    location = response.getheader('Location')
-                    if not location:
-                        raise ValueError('redirect without a Location header')
-                    target = urllib.parse.urljoin(url, location)
-                    if not _redirect_allowed(target, allow_http):
-                        raise ValueError('redirect to a non-http(s) scheme refused')
-                    _quiet_close(connection)
-                    url = target
-                    continue
-                blocks, total = [], 0
-                while True:
-                    block = response.read1(256 * 1024)
-                    if not block:
-                        break
-                    total += len(block)
-                    if total > MAX_FETCH:
-                        raise ValueError('source is larger than %d bytes' % MAX_FETCH)
-                    blocks.append(block)
-                holder['payload'] = b''.join(blocks)
-                holder['content_type'] = response.headers.get('Content-Type', '')
-                holder['status'] = response.status
-                return
+                connection = None
+                response = None
+                try:
+                    connection = _connect(url, min(15, budget))
+                    holder['connection'] = connection
+                    response = connection.getresponse()
+                    if response.status in (301, 302, 303, 307, 308):
+                        location = response.getheader('Location')
+                        if not location:
+                            raise ValueError('redirect without a Location header')
+                        target = urllib.parse.urljoin(url, location)
+                        if not _redirect_allowed(target, allow_http):
+                            raise ValueError('redirect to a non-http(s) scheme refused')
+                        url = target
+                        continue
+                    blocks, total = [], 0
+                    while True:
+                        block = response.read1(256 * 1024)
+                        if not block:
+                            break
+                        total += len(block)
+                        if total > MAX_FETCH:
+                            raise ValueError('source is larger than %d bytes' % MAX_FETCH)
+                        blocks.append(block)
+                    holder['payload'] = b''.join(blocks)
+                    holder['content_type'] = response.headers.get('Content-Type', '')
+                    holder['status'] = response.status
+                    return
+                finally:
+                    if response is not None:
+                        try:
+                            response.close()
+                        except Exception:
+                            pass
+                    if connection is not None:
+                        try:
+                            connection.close()
+                        except Exception:
+                            pass
             raise ValueError('too many redirects')
         except BaseException as error:  # a shutdown after the deadline lands here
             holder['error'] = error
@@ -425,6 +259,11 @@ def classify_source(source_url, allow_http=False):
     if scheme == 'http' and not allow_http:
         return {'kind': None, 'rows': [], 'url': source_url,
                 'error': '明文 http 被配置拒绝（http.allow_http 为 false），请用 https'}
+    if scheme == 'https':
+        try:
+            _reject_repository_page(source_url)
+        except Exception as error:
+            return {'kind': None, 'rows': [], 'url': source_url, 'error': str(error)}
     outcome = _fetch_source(source_url, allow_http)
     if 'error' in outcome:
         return {'kind': None, 'rows': [], 'url': source_url,
@@ -490,12 +329,6 @@ def _prepare(config_path, daily_time, source_url, verdict=None):
     except Exception as error:
         ok = False
         messages.append({'level': 'error', 'text': str(error)})
-    if str(source_url).lower().startswith('https://'):
-        try:
-            _reject_repository_page(source_url)
-        except Exception as error:
-            ok = False
-            messages.append({'level': 'error', 'text': str(error)})
     if daily_time == current_time:
         messages.append({'level': 'info', 'text': '启动时间未变化。'})
     if source_url == current_url:
@@ -515,6 +348,27 @@ def _prepare(config_path, daily_time, source_url, verdict=None):
 def preview_changes(config_path, daily_time, source_url):
     prepared = _prepare(config_path, daily_time, source_url)
     prepared.pop('candidate', None)
+    return prepared
+
+
+def check_preview(config_path, daily_time, source_url):
+    """Combine a one-off source check with a read-only draft preview."""
+    config, _ = load_config(config_path)
+    verdict = classify_source(source_url, bool(config.get('http', {}).get('allow_http')))
+    prepared = _prepare(config_path, daily_time, source_url, verdict=verdict)
+    source_error = verdict.get('error')
+    if not source_error and verdict.get('kind') != 'manifest':
+        source_error = ('这是图片直链，不是清单。页面只支持 JSON 清单图源；'
+                        '如需使用图片直链，请通过命令行设置。')
+    source_check = {'ok': source_error is None, 'kind': verdict.get('kind'),
+                    'rows': verdict.get('rows', []), 'error': source_error}
+    if source_error:
+        prepared['ok'] = False
+        prepared['candidate'] = None
+        if not any(message.get('text') == source_error for message in prepared['messages']):
+            prepared['messages'].append({'level': 'error', 'text': source_error})
+    prepared.pop('candidate', None)
+    prepared['source_check'] = source_check
     return prepared
 
 
@@ -660,7 +514,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if content_type.startswith('text/html'):
             self.send_header('Content-Security-Policy',
                              "default-src 'none'; style-src 'unsafe-inline'; "
-                             "script-src 'unsafe-inline'; connect-src 'self'; "
+                             "script-src 'unsafe-inline'; connect-src 'self'; font-src 'self'; "
                              "img-src 'none'; frame-ancestors 'none'; base-uri 'none'; "
                              "form-action 'none'")
         self.end_headers()
@@ -690,7 +544,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         try:
             if parsed.path == '/':
-                return self._send(200, page_html(), 'text/html; charset=utf-8')
+                return self._send(200, page_html(self.token), 'text/html; charset=utf-8')
+            if parsed.path == '/assets/fonts/source-han-sans-cn.woff2':
+                return self._send(200, FONT_PATH.read_bytes(), 'font/woff2')
             if parsed.path == '/api/status':
                 return self._send(200, status_payload(self.config_path))
             if parsed.path == '/api/log':
@@ -718,6 +574,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except (ValueError, TypeError) as error:
             return self._send(400, {'error': 'bad json: %s' % error})
         try:
+            if parsed.path == '/api/check-preview':
+                return self._send(200, check_preview(self.config_path, str(body.get('daily_time') or ''),
+                                                    str(body.get('source_url') or '')))
             if parsed.path == '/api/preview':
                 return self._send(200, preview_changes(self.config_path, str(body.get('daily_time') or ''),
                                                        str(body.get('source_url') or '')))
@@ -776,7 +635,8 @@ def serve(config_path=None, port=8765, open_browser=True):
     print('open:   %s' % url)
     if os.environ.get(PAGE_OVERRIDE_ENV):
         print('page:   %s (override)' % os.environ[PAGE_OVERRIDE_ENV])
-    print('Ctrl-C to stop')
+    print('关闭网页不会停止 PaperDrop；按本终端的 Ctrl+C 退出。')
+    print('Closing the browser does not stop PaperDrop; press Ctrl+C in this terminal to exit.')
     if open_browser:
         try:
             webbrowser.open(url)
