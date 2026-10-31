@@ -4,6 +4,18 @@ All notable changes to PaperDrop are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions use
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.2] — 2026-10-31
+
+Still a pre-release; the truncated-response retry is covered by automated tests,
+but the originating network path and real-device recovery remain unverified.
+
+### Fixed
+- Treat response bodies shorter than their declared `Content-Length` as retryable
+  transfer failures, so the existing bounded retry policy runs before image
+  verification. Failed updates continue to preserve the last good wallpaper.
+- Reject malformed `Content-Length` values as a controlled fetch error rather than
+  allowing invalid numeric text to escape as an uncaught conversion exception.
+
 ## [0.3.1] — 2026-10-25
 
 Still a pre-release. Homebrew packaging and automated command checks do not imply

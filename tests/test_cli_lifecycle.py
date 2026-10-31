@@ -13,7 +13,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 import support
-from paperdrop import cli
+from paperdrop import __version__, cli
 from paperdrop.config import example_config
 
 
@@ -70,7 +70,7 @@ class LifecycleTests(unittest.TestCase):
         def perform():
             if failure:
                 raise UpgradeError('upgrade failed safely')
-            return {'ok': True, 'changed': changed, 'version': '0.3.1', 'python': '/isolated/bin/python'}
+            return {'ok': True, 'changed': changed, 'version': __version__, 'python': '/isolated/bin/python'}
         return types.SimpleNamespace(UpgradeError=UpgradeError, upgrade_software=perform)
 
     def test_upgrade_needs_no_config_and_launches_the_new_python_after_success(self):
@@ -92,7 +92,7 @@ class LifecycleTests(unittest.TestCase):
                 self.assertEqual(code, 0, err)
                 launch.assert_not_called()
                 if '--json' in flags:
-                    self.assertEqual(json.loads(out)['version'], '0.3.1')
+                    self.assertEqual(json.loads(out)['version'], __version__)
 
     def test_upgrade_failure_does_not_launch_ui(self):
         with patch.dict(sys.modules, {'paperdrop.upgrade': self.upgrade_module(failure=True)}), \

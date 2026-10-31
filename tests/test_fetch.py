@@ -1,6 +1,7 @@
 """Transfer policy: retries, redirect limits, size caps, and no credentials."""
 from __future__ import annotations
 
+import http.client
 import http.server
 import json
 import pathlib
@@ -54,6 +55,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if len(self.server.flaky) < 3:
                 return self._send(503, b'', {'Retry-After': '0'})
             return self._send(200, IMAGE)
+        if path == '/short-body-once':
+            attempts = getattr(self.server, 'short_body_attempts', 0) + 1
+            setattr(self.server, 'short_body_attempts', attempts)
+            if attempts == 1:
+                self.send_response(200)
+                self.send_header('Content-Type', 'image/jpeg')
+                self.send_header('Content-Length', str(len(IMAGE)))
+                self.end_headers()
+                self.wfile.write(IMAGE[:-17])
+                self.wfile.flush()
+                self.close_connection = True
+                return
+            return self._send(200, IMAGE)
         if path == '/big':
             return self._send(200, b'x' * 4096)
         if path == '/missing':
@@ -66,6 +80,7 @@ class FetchTests(unittest.TestCase):
     def setUpClass(cls):
         cls.server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
         cls.server.seen, cls.server.flaky = [], []
+        setattr(cls.server, 'short_body_attempts', 0)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
         cls.base = 'http://127.0.0.1:%d' % cls.server.server_address[1]
@@ -122,6 +137,57 @@ class FetchTests(unittest.TestCase):
         response = self.fetcher().get(self.base + '/flaky')
         self.assertEqual(response.status, 200)
         self.assertEqual(response.data, IMAGE)
+
+    def test_truncated_content_length_response_is_retried_then_succeeds(self):
+        setattr(self.server, 'short_body_attempts', 0)
+        response = self.fetcher(retries=1).get(self.base + '/short-body-once')
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.data, IMAGE)
+        self.assertEqual(getattr(self.server, 'short_body_attempts'), 2)
+
+    def test_silent_short_read_against_content_length_is_retryable(self):
+        class ShortReadResponse:
+            headers = {'Content-Length': str(len(IMAGE))}
+
+            def __init__(self):
+                self.sent = False
+
+            def read(self, amount):
+                if self.sent:
+                    return b''
+                self.sent = True
+                return IMAGE[:-17]
+
+        with self.assertRaises(FetchError) as caught:
+            self.fetcher()._read_bounded(ShortReadResponse(), 1024 * 1024)
+        self.assertTrue(caught.exception.retryable)
+        self.assertIn(str(len(IMAGE)), str(caught.exception))
+        self.assertIn(str(len(IMAGE) - 17), str(caught.exception))
+
+    def test_incomplete_read_exception_is_retryable(self):
+        class IncompleteResponse:
+            headers = {'Content-Length': str(len(IMAGE))}
+
+            def read(self, amount):
+                raise http.client.IncompleteRead(IMAGE[:-17], 17)
+
+        with self.assertRaises(FetchError) as caught:
+            self.fetcher()._read_bounded(IncompleteResponse(), 1024 * 1024)
+        self.assertTrue(caught.exception.retryable)
+        self.assertIn(str(len(IMAGE) - 17), str(caught.exception))
+        self.assertIn(str(len(IMAGE)), str(caught.exception))
+
+    def test_non_ascii_content_length_is_rejected_as_fetch_error(self):
+        class InvalidLengthResponse:
+            headers = {'Content-Length': '²'}
+
+            def read(self, amount):
+                return IMAGE
+
+        with self.assertRaises(FetchError) as caught:
+            self.fetcher()._read_bounded(InvalidLengthResponse(), 1024 * 1024)
+        self.assertFalse(caught.exception.retryable)
+        self.assertIn('Content-Length', str(caught.exception))
 
     def test_permanent_failure_is_not_retried(self):
         before = len(self.server.seen)

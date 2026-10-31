@@ -19,7 +19,7 @@ README 只保留安装入口和四个常用命令；环境准备、原生组件�
 With Python 3.9+ and pipx available:
 
 ```bash
-pipx install https://github.com/PelikanM400/paperdrop/releases/download/v0.3.1/paperdrop-0.3.1-py3-none-any.whl
+pipx install https://github.com/PelikanM400/paperdrop/releases/download/v0.3.2/paperdrop-0.3.2-py3-none-any.whl
 pipx ensurepath
 ```
 

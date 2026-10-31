@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import http.client
 import time
 import urllib.error
 import urllib.parse
@@ -177,16 +178,40 @@ class Fetcher:
     def _read_bounded(self, response, max_bytes):
         limit = self.max_bytes if max_bytes is None else max_bytes
         declared = response.headers.get('Content-Length')
-        if declared and declared.isdigit() and int(declared) > limit:
+        if declared is None:
+            expected = None
+        else:
+            normalized_length = declared.strip()
+            if not normalized_length.isascii() or not normalized_length.isdigit():
+                raise FetchError('Invalid Content-Length header.',
+                                 status=getattr(response, 'status', None))
+            expected = int(normalized_length)
+        if expected is not None and expected > limit:
             raise FetchError('Refusing a %s byte body (limit %d).' % (declared, limit))
         chunks = []
         total = 0
         while True:
-            chunk = response.read(_CHUNK)
+            try:
+                chunk = response.read(_CHUNK)
+            except http.client.IncompleteRead as error:
+                received = total + len(error.partial or b'')
+                if received > limit:
+                    raise FetchError('Response exceeded the %d byte limit.' % limit)
+                if expected is not None:
+                    message = ('Incomplete response body: received %d bytes, Content-Length '
+                               'declared %d.' % (received, expected))
+                else:
+                    message = 'Incomplete response body: stream ended after %d bytes.' % received
+                raise FetchError(message, retryable=True,
+                                 status=getattr(response, 'status', None)) from None
             if not chunk:
                 break
             total += len(chunk)
             if total > limit:
                 raise FetchError('Response exceeded the %d byte limit.' % limit)
             chunks.append(chunk)
+        if expected is not None and total != expected:
+            raise FetchError('Incomplete response body: received %d bytes, Content-Length '
+                             'declared %d.' % (total, expected), retryable=True,
+                             status=getattr(response, 'status', None))
         return b''.join(chunks)

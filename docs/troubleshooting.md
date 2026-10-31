@@ -42,6 +42,16 @@ cached, what succeeded last, and what the desktop currently reports.
    it only trusts a padded ISO date, and it re-reads a manifest that carries no date
    at all.
 
+## Download reports an incomplete response body or size mismatch
+
+When the server declares a `Content-Length` but the connection ends before that
+many bytes arrive, PaperDrop treats it as a retryable transfer failure and makes
+the configured bounded number of attempts. If every attempt is still short, the
+update fails safely: the incomplete image is not applied and the last good
+wallpaper remains in place. Check `paperdrop status` and the log for the final
+attempt; this behavior detects and retries truncation, but does not identify or
+repair its cause (which may be in the server or network path).
+
 ## "the desktop state could not be confirmed"
 
 The image was cached and the apply command was accepted, but reading back the
