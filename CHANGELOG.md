@@ -4,6 +4,24 @@ All notable changes to PaperDrop are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions use
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.3] — 2026-11-10
+
+Still a pre-release. Automated HTTP/1.1, proxy/TLS-routing and Python 3.9
+regressions cover the changed transport; recovery on the affected Mac and the
+identity of the component truncating the original transfers remain unverified.
+
+### Fixed
+- Stop urllib from forcing `Connection: close` on PaperDrop HTTP/HTTPS downloads,
+  including redirected requests. Keep the standard proxy discovery, TLS
+  verification and single-response connection cleanup; no connection pool or new
+  dependency is introduced.
+- Close unused redirect responses promptly instead of draining their bodies,
+  including rejected redirects, so a redirect cannot stall on an unused body.
+- Close temporary HTTPS CONNECT response parsers on older Python releases even
+  when tunnel setup fails.
+- Preserve bounded retries, size/length/hash/image checks and the last good
+  wallpaper when an update fails.
+
 ## [0.3.2] — 2026-10-31
 
 Still a pre-release; the truncated-response retry is covered by automated tests,

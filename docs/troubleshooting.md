@@ -52,6 +52,15 @@ wallpaper remains in place. Check `paperdrop status` and the log for the final
 attempt; this behavior detects and retries truncation, but does not identify or
 repair its cause (which may be in the server or network path).
 
+From 0.3.3, PaperDrop no longer sends urllib's automatic `Connection: close`
+request header. A reported affected-Mac comparison found truncation with that
+header and complete downloads without it; the change avoids that trigger without
+requiring a proxy-setting change. This is a client compatibility fix, not proof
+that a particular proxy or server caused the original failure, nor a guarantee
+against other network interruptions. Connections are still released after each
+response; no persistent pool is kept. Existing transfer and image checks remain
+enabled. Real-device acceptance on the affected Mac is still pending.
+
 ## "the desktop state could not be confirmed"
 
 The image was cached and the apply command was accepted, but reading back the

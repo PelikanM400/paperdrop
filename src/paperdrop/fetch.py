@@ -12,6 +12,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -47,6 +48,46 @@ class Response:
         return self.headers.get('Last-Modified')
 
 
+class _NoForcedClose:
+    """Remove urllib's forced close header, not its single-response lifecycle."""
+
+    def request(self, method, url, body=None, headers=None, *, encode_chunked=False):
+        headers = {key: value for key, value in (headers or {}).items()
+                   if key.lower() != 'connection'}
+        return super().request(method, url, body, headers, encode_chunked=encode_chunked)
+
+
+class _HTTPConnection(_NoForcedClose, http.client.HTTPConnection):
+    pass
+
+
+class _HTTPSConnection(_NoForcedClose, http.client.HTTPSConnection):
+    def _tunnel(self):
+        # Older Pythons leave the CONNECT parser open on failure. Scope its
+        # lifetime without replacing stdlib proxy parsing or TLS setup.
+        response_class = self.response_class
+        with ExitStack() as cleanup:
+            def response(*args, **kwargs):
+                return cleanup.enter_context(response_class(*args, **kwargs))
+
+            self.response_class = response
+            try:
+                return super()._tunnel()
+            finally:
+                self.response_class = response_class
+
+
+class _HTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_HTTPConnection, req)
+
+
+class _HTTPSHandler(urllib.request.HTTPSHandler):
+    def do_open(self, http_class, req, **kwargs):
+        # Inherit https_open so each Python version supplies its own TLS options.
+        return super().do_open(_HTTPSConnection, req, **kwargs)
+
+
 class _RedirectPolicy(urllib.request.HTTPRedirectHandler):
     """Count hops, refuse non-approved schemes, and never forward credentials."""
 
@@ -56,6 +97,9 @@ class _RedirectPolicy(urllib.request.HTTPRedirectHandler):
         self.state = state
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Each hop owns its connection; discard the unused body rather than
+        # urllib's unbounded drain. Close even when the policy rejects the hop.
+        fp.close()
         self.state['hops'] += 1
         if self.state['hops'] > self.max_redirects:
             raise FetchError('Too many redirects (limit %d).' % self.max_redirects)
@@ -138,7 +182,7 @@ class Fetcher:
             opener = self._opener_factory(url, state)
         else:
             policy = _RedirectPolicy(self.allowed_schemes, self.max_redirects, state)
-            opener = urllib.request.build_opener(policy)
+            opener = urllib.request.build_opener(policy, _HTTPHandler(), _HTTPSHandler())
         request = urllib.request.Request(url, headers=request_headers, method='GET')
         try:
             with opener.open(request, timeout=self.timeout) as response:
