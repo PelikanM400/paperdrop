@@ -39,7 +39,7 @@ Built by AI agents through Hermes (DeepSeek, with OpenAI Codex/GPT participation
 the owner supplies requirements, accepts the result and decides releases.
 Releases require independent agent review and anonymous artifact verification.
 
-[MIT](LICENSE). The bundled Source Han Sans CN font uses the SIL Open Font License.
+[MIT](LICENSE). The bundled Noto Serif SC and Source Han Sans CN fonts use the SIL Open Font License.
 PaperDrop includes no wallpaper images; remote image rights remain with their owners.
 
 ---
@@ -76,4 +76,4 @@ Brew 安装版用 `brew upgrade pelikanm400/tap/paperdrop` 升级。pipx 版加 
 
 本项目由 AI agent 构建：Hermes 会话驱动 DeepSeek，OpenAI Codex/GPT 参与部分实现与排查；作者负责需求、验收和发布决定。发布经过独立 agent 复审和匿名安装包核验。
 
-软件采用 [MIT 许可证](LICENSE)，随包思源黑体采用 SIL Open Font License。软件不附带壁纸，远程图片版权及使用许可归原权利人。
+软件采用 [MIT 许可证](LICENSE)，随包 Noto Serif SC 与思源黑体采用 SIL Open Font License。软件不附带壁纸，远程图片版权及使用许可归原权利人。

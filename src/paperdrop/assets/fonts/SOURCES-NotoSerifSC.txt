@@ -1,0 +1,37 @@
+Noto Serif SC — bundled complete variable font
+
+Upstream: https://github.com/google/fonts/tree/main/ofl/notoserifsc
+Source: https://raw.githubusercontent.com/google/fonts/main/ofl/notoserifsc/NotoSerifSC%5Bwght%5D.ttf
+Immutable Git blob: https://api.github.com/repos/google/fonts/git/blobs/eab063faf229160a52d3760f5555150e4eb9e5bf
+TTF SHA-256: 050080d9255a86808f2945bffac582b31ef32bc36411ce29563b4961670c66f9
+TTF bytes: 25125512
+Bundled noto-serif-sc.woff2 SHA-256: 4ee9b0921ec9bd3f8b04587c7bc66c62731045e89d74eec054f37fc7a2d26383
+WOFF2 bytes: 11032420
+License: OFL-NotoSerifSC.txt (upstream SIL OFL 1.1, copied unchanged)
+License Git blob: 94d1bf7b52481343e2983fb7751e8b7abe1ea07b
+License SHA-256: 5e0da210fb04058a8c0087985d2d456b931c2579811a49655721d3cf0c36b6d6
+
+Conversion (isolated build tooling only; no product/runtime dependency):
+fontTools 4.68.0 + Brotli 1.2.1, Python 3.14.
+  font = fontTools.ttLib.TTFont(source, recalcTimestamp=False)
+  font.flavor = 'woff2'
+  font.save(target)
+No subsetting, instancing, name editing, or glyph removal. The upstream license
+specifies no Reserved Font Name. Original notices are retained in the font and
+adjacent OFL file. This font remains licensed under OFL, not the app's MIT license.
+
+Coverage verified after reopening the WOFF2:
+- 31,058 glyphs; 30,928 Unicode codepoints; cmap and glyph order equal to upstream.
+- Variable weight axis wght 200–900 retained (default 200).
+- Every printable ASCII character U+0020–U+007E.
+- Entire basic CJK unified ideographs block U+4E00–U+9FFF, not only UI copy.
+- All 210 distinct literal Han codepoints found across production .py and ui.html
+  at conversion time (including actual status, validation, and error messages).
+- Dynamic common Chinese paths, logs, and values use this same complete font.
+This is not a claim to cover all Unicode or every rare CJK extension character.
+Unsupported glyphs fall through to the preserved bundled Source Han Sans subset
+and then the browser's serif fallback; no font is fetched from the internet.
+
+The complete font adds about 11 MB to the distribution, deliberately trading
+package size for consistent offline editorial typography and dynamic text support.
+The pre-existing Source Han Sans file, license, and guarded URL remain unchanged.

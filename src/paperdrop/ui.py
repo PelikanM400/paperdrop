@@ -103,6 +103,7 @@ def _quiet_close(connection):
 
 PAGE = (pathlib.Path(__file__).with_name('assets') / 'ui.html').read_text(encoding='utf-8')
 FONT_PATH = pathlib.Path(__file__).with_name('assets') / 'fonts' / 'source-han-sans-cn.woff2'
+SERIF_FONT_PATH = FONT_PATH.with_name('noto-serif-sc.woff2')
 
 
 def _run_cli(config_path, *args, timeout=300):
@@ -142,7 +143,10 @@ def page_html(token=None):
     active_token = token or getattr(Handler, 'token', '') or ''
     font_url = '/assets/fonts/source-han-sans-cn.woff2?t=' + urllib.parse.quote(active_token, safe='')
     return (html.replace('__PRESETS__', presets)
-            .replace('__PAPERDROP_FONT_URL__', font_url).encode('utf-8'))
+            .replace('__PAPERDROP_FONT_URL__', font_url)
+            .replace('__PAPERDROP_SERIF_FONT_URL__',
+                     '/assets/fonts/noto-serif-sc.woff2?t=' + urllib.parse.quote(active_token, safe=''))
+            .encode('utf-8'))
 
 
 def _schedule_state(config):
@@ -644,6 +648,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._send(200, page_html(self.token), 'text/html; charset=utf-8')
             if parsed.path == '/assets/fonts/source-han-sans-cn.woff2':
                 return self._send(200, FONT_PATH.read_bytes(), 'font/woff2')
+            if parsed.path == '/assets/fonts/noto-serif-sc.woff2':
+                return self._send(200, SERIF_FONT_PATH.read_bytes(), 'font/woff2')
             if parsed.path == '/api/status':
                 return self._send(200, status_payload(self.config_path))
             if parsed.path == '/api/log':

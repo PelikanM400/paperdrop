@@ -4,6 +4,24 @@ All notable changes to PaperDrop are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions use
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.4] — 2026-11-17
+
+Still a pre-release. The owner approved the editorial HTML preview; the
+redesigned installed settings page and OS desktop/scheduling behaviour have
+separate browser, packaging and target-device acceptance scopes.
+
+### Changed
+- Restyled the existing local settings page with the approved single-column
+  editorial layout, serif typography, generous spacing, deep-green accents and
+  restrained borders. Chinese and English, light/dark/system themes, built-in
+  and custom sources, configuration checks, quick actions and system information
+  remain available.
+- Bundle the settings typeface and its licence for local, offline rendering;
+  fonts use the same token and Host protection as the settings page.
+- Keep the production configuration and scheduling workflow: changes still
+  require a valid check and explicit confirmation. Opening settings or upgrading
+  the package does not change the configured source, time or paused state.
+
 ## [0.3.3] — 2026-11-10
 
 Still a pre-release. Automated HTTP/1.1, proxy/TLS-routing and Python 3.9

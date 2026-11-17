@@ -170,6 +170,43 @@ class SettingsPageTests(unittest.TestCase):
         _, page = request(self.url('/'))
         self.assertIn('/assets/fonts/source-han-sans-cn.woff2?t=test-token', page)
 
+    def test_editorial_font_is_local_and_uses_only_exact_guarded_routes(self):
+        route = '/assets/fonts/noto-serif-sc.woff2'
+        # Authentication must run before asset lookup, including for HEAD.
+        for method in ('GET', 'HEAD'):
+            for token in ('', 'wrong'):
+                with self.subTest(method=method, token=token):
+                    self.assertEqual(request(self.url(route, token=token), method)[0], 403)
+            self.assertEqual(request(self.url(route), method, host='evil.example')[0], 403)
+        self.assertEqual(request(self.url(route))[0], 200, 'bundled editorial font route is missing')
+        with urllib.request.urlopen(self.url(route), timeout=15) as response:
+            font = response.read()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.headers.get_content_type(), 'font/woff2')
+            self.assertEqual(response.headers['X-Content-Type-Options'], 'nosniff')
+            self.assertEqual(font, (ui.FONT_PATH.parent / 'noto-serif-sc.woff2').read_bytes())
+            self.assertTrue(font.startswith(b'wOF2'))
+        head = urllib.request.Request(self.url(route), method='HEAD')
+        with urllib.request.urlopen(head, timeout=15) as response:
+            self.assertEqual(int(response.headers['Content-Length']), len(font))
+            self.assertEqual(response.read(), b'')
+        for suffix in ('.bak', '/extra', '/../ui.html'):
+            self.assertEqual(request(self.url(route + suffix))[0], 404)
+        self.assertEqual(request(self.url('/assets/fonts/OFL-NotoSerifSC.txt'))[0], 404)
+        _, page = request(self.url('/'))
+        self.assertIn(route + '?t=test-token', page)
+        self.assertIn('--serif:"PaperDrop Noto Serif SC","PaperDrop Source Han",serif', page)
+        self.assertIn('font-weight:200 900', page)
+        self.assertNotIn('__PAPERDROP_SERIF_FONT_URL__', page)
+        font_sources = re.findall(r'@font-face\{[^}]*src:url\("([^"]+)"\)', page)
+        self.assertEqual(set(font_sources), {
+            route + '?t=test-token', '/assets/fonts/source-han-sans-cn.woff2?t=test-token'})
+        with urllib.request.urlopen(self.url('/'), timeout=15) as response:
+            self.assertIn("font-src 'self'", response.headers['Content-Security-Policy'])
+        license_text = (ui.FONT_PATH.parent / 'OFL-NotoSerifSC.txt').read_text()
+        self.assertIn('Copyright 2012 Google Inc.', license_text)
+        self.assertIn('SIL OPEN FONT LICENSE Version 1.1', license_text)
+
     def test_index_serves_the_page(self):
         status, body = request(self.url('/'))
         self.assertEqual(status, 200)
